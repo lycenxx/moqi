@@ -22,6 +22,34 @@ export const ConfigSchema = z.object({
   dailyBudget: z.number().int().min(0).max(50).default(3),
   weather: z.object({ latitude: z.number(), longitude: z.number(), place: z.string() }).optional(),
   calendar: z.object({ ics: z.string() }).optional(),
+  /** MCP servers whose tools moqi may use, by name. */
+  mcp: z
+    .object({
+      servers: z.record(
+        z.string().regex(/^[A-Za-z0-9_-]{1,32}$/, "名字只能用字母、数字、_ 和 -"),
+        z.object({
+          command: z.string().min(1),
+          args: z.array(z.string()).optional(),
+          env: z.record(z.string(), z.string()).optional(),
+          cwd: z.string().optional(),
+        }),
+      ),
+    })
+    .optional(),
+  /** Other A2A agents moqi may ask, by name. */
+  a2a: z
+    .object({
+      agents: z
+        .array(
+          z.object({
+            name: z.string().regex(/^[A-Za-z0-9_-]{1,32}$/, "名字只能用字母、数字、_ 和 -"),
+            url: z.string().url(),
+            key: z.string().optional(),
+          }),
+        )
+        .max(20),
+    })
+    .optional(),
   news: z
     .object({ feeds: z.array(z.object({ name: z.string().min(1).max(40), url: z.string().url() })).max(20) })
     // On unless turned off with an empty list, so an existing config gets news after an upgrade too.

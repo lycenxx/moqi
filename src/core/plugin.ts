@@ -14,6 +14,8 @@ export interface Tool<A = unknown> {
   readonly name: string;
   readonly description: string;
   readonly input: z.ZodType<A>;
+  /** The JSON Schema shown to the model, when the tool comes with its own (e.g. from an MCP server). */
+  readonly parameters?: Record<string, unknown>;
   /** "read" tools run freely; "write" tools start at "suggest" and earn trust. */
   readonly effect: "read" | "write";
   /** Starting autonomy, when the default for `effect` does not fit (e.g. remembering what the user said). */
@@ -37,7 +39,7 @@ export function defineTool<A>(tool: Tool<A>): Tool<A> {
 }
 
 export function toolSpec(tool: Tool): ToolSpec {
-  const schema = z.toJSONSchema(tool.input) as Record<string, unknown>;
+  const schema = { ...(tool.parameters ?? (z.toJSONSchema(tool.input) as Record<string, unknown>)) };
   delete schema.$schema;
   return { name: tool.name, description: tool.description, parameters: schema };
 }

@@ -100,6 +100,54 @@ describe("finding other agents", () => {
   });
 });
 
+describe("tools other agents have", () => {
+  it("offers once to use other agents' MCP servers, and adds them on yes", async () => {
+    const { home } = fakeHome();
+    const added: string[][] = [];
+    const own: string[] = [];
+    const plugin = agentsPlugin({
+      home,
+      command: COMMAND,
+      platform: "darwin",
+      ownServers: () => own,
+      useServers: (servers) => {
+        added.push(servers.map((s) => s.name));
+        own.push(...servers.map((s) => s.name));
+        return "好";
+      },
+    });
+    const { moqi, clock } = harness({ plugins: [plugin] });
+    await moqi.tick();
+    const offer = [...moqi.state.offers.values()].map((r) => r.offer).find((o) => o.kind === "mcp.import");
+    expect(offer?.title).toBe("其他 agent 里有 1 个 MCP 工具，让 moqi 也能用吗？");
+    expect(offer?.body).toContain("blender（来自 Cursor）：uvx blender-mcp");
+    expect(added).toEqual([]); // nothing before the user says yes
+    await moqi.feedback(offer?.id ?? "", "accepted");
+    expect(added).toEqual([["blender"]]);
+    clock.advance(11 * 60_000);
+    await moqi.tick();
+    expect([...moqi.state.offers.values()].filter((r) => r.offer.kind === "mcp.import")).toHaveLength(1);
+  });
+
+  it("does not offer again servers the user said no to", async () => {
+    const { home } = fakeHome();
+    const plugin = agentsPlugin({
+      home,
+      command: COMMAND,
+      platform: "darwin",
+      ownServers: () => [],
+      useServers: () => "好",
+    });
+    const { moqi, clock } = harness({ plugins: [plugin] });
+    await moqi.tick();
+    const offer = [...moqi.state.offers.values()].map((r) => r.offer).find((o) => o.kind === "mcp.import");
+    await moqi.feedback(offer?.id ?? "", "dismissed");
+    clock.advance(11 * 60_000);
+    await moqi.tick();
+    expect([...moqi.state.offers.values()].filter((r) => r.offer.kind === "mcp.import")).toHaveLength(1);
+  });
+});
+
 describe("moqi finds agents on its own", () => {
   it("offers once to connect what it found, connects on yes, and offers again only for new ones", async () => {
     const { home, read } = fakeHome();

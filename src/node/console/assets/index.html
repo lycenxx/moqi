@@ -206,6 +206,50 @@
             <div class="list" id="agents"></div>
           </fieldset>
 
+          <fieldset class="group">
+            <legend>MCP 工具</legend>
+            <p class="hint first">moqi 能用的 MCP 服务器。服务器标了只读的工具随时可用，会改动东西的工具每次先问你。</p>
+            <div class="list" id="mcp-servers"></div>
+            <div class="list" id="mcp-import"></div>
+            <details class="more">
+              <summary>手动添加</summary>
+              <div class="field">
+                <label for="mcp-name">名字</label>
+                <input id="mcp-name" type="text" autocomplete="off" spellcheck="false" placeholder="比如 files" />
+              </div>
+              <div class="field">
+                <label for="mcp-command">启动命令</label>
+                <input id="mcp-command" type="text" autocomplete="off" spellcheck="false" placeholder="npx -y @modelcontextprotocol/server-filesystem ~/Documents" />
+                <p class="hint">按空格分开参数；带空格的参数请改配置文件。</p>
+              </div>
+              <button type="button" class="btn" id="mcp-add">添加</button>
+            </details>
+          </fieldset>
+
+          <fieldset class="group">
+            <legend>A2A</legend>
+            <p class="hint first">支持 A2A 的 agent 可以按下面的 agent card 找到 moqi，请求时带上钥匙（Authorization: Bearer 钥匙）。</p>
+            <div class="list" id="a2a-self"></div>
+            <h3 class="minor">moqi 能问的 agent</h3>
+            <div class="list" id="a2a-agents"></div>
+            <details class="more">
+              <summary>添加一个 agent</summary>
+              <div class="field">
+                <label for="a2a-name">名字</label>
+                <input id="a2a-name" type="text" autocomplete="off" spellcheck="false" placeholder="比如 travel" />
+              </div>
+              <div class="field">
+                <label for="a2a-url">地址（agent 的网址，或它的 agent card 网址）</label>
+                <input id="a2a-url" type="url" autocomplete="off" spellcheck="false" placeholder="https://…" />
+              </div>
+              <div class="field">
+                <label for="a2a-key">钥匙（可选）</label>
+                <input id="a2a-key" type="password" autocomplete="off" spellcheck="false" />
+              </div>
+              <button type="button" class="btn" id="a2a-add">添加</button>
+            </details>
+          </fieldset>
+
           <div class="savebar">
             <span class="result" id="save-result" role="status"></span>
             <button type="submit" class="btn primary" id="save">保存</button>

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- Study: while the user is away (half an hour without a message, outside quiet hours, at most three times a day), moqi learns on its own. With enough new reactions to review, it writes lessons about how to help this user and retires ones proven wrong; otherwise it picks a topic from the profile, reads one or two articles its feeds listed, and keeps notes with their source. Lessons and notes go into every chat and reflection, show in the Memory tab with sources, and can be deleted. A "现在学一学" button studies on demand.
+- A2A server: the running moqi publishes an agent card at `/.well-known/agent-card.json` and answers `SendMessage` (A2A 1.0) and `message/send` (0.3) over JSON-RPC with its own key (`moqi a2a` shows it). Other agents' messages are marked as theirs in the conversation. Tested with the official A2A JS client.
+- MCP client: servers in `mcp.servers` become moqi's tools; read-only ones run freely and can drive watches, the rest are asked first. moqi offers once to use the MCP servers other agents have configured. Settings show each server's state and tools, with add, import and remove.
+- A2A client: agents in `a2a.agents` become `ask_<name>` tools, asked first because what moqi sends is shared. Works with 1.0 and 0.3 agents.
+- MCP server: `moqi_tell` and `moqi_ask` name the calling agent from its MCP handshake; `moqi_profile` includes the lessons moqi learned.
+
 ## [0.4.0] - 2026-11-20
 
 - Finding other agents: moqi looks for Kiro, Cursor, Claude Code, Claude Desktop, VS Code, Windsurf and Gemini CLI, and for unknown agents by their MCP config in the home directory, then offers once in the feed to connect the ones not connected yet. Settings list every agent found with connect and disconnect buttons. Only the `moqi` entry is added or removed; the rest of the file and its permissions are kept, the file is backed up once as `.moqi-backup`, and unreadable files are left alone. Entries use absolute paths so GUI apps find moqi without a shell PATH.

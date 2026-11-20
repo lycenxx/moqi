@@ -8,6 +8,8 @@ export interface ConsoleInfo {
   readonly pid: number;
   readonly port: number;
   readonly token: string;
+  /** For other agents over A2A; separate from the console's key so it opens nothing else. */
+  readonly a2aKey?: string;
 }
 
 export function newToken(): string {
@@ -50,11 +52,22 @@ export function consoleToken(home: string): string {
   return typeof token === "string" && token.length >= 32 ? token : newToken();
 }
 
+export function a2aKeyFor(home: string): string {
+  const { a2aKey } = readConsoleInfo(home);
+  return typeof a2aKey === "string" && a2aKey.length >= 32 ? a2aKey : newToken();
+}
+
 /** The console of the moqi running on this home, if it serves one. */
 export function runningConsole(home: string): (ConsoleInfo & { readonly url: string }) | undefined {
   const pid = lockHolder(home);
   if (!pid) return undefined;
   const info = readConsoleInfo(home);
   if (info.pid !== pid || !info.port || !info.token) return undefined;
-  return { pid, port: info.port, token: info.token, url: consoleUrl(info.port, info.token) };
+  return {
+    pid,
+    port: info.port,
+    token: info.token,
+    ...(info.a2aKey && { a2aKey: info.a2aKey }),
+    url: consoleUrl(info.port, info.token),
+  };
 }

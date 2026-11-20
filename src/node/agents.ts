@@ -176,6 +176,41 @@ function describe(h: Host): FoundAgent {
   return { ...base, connected: isRecord(map) && SERVER_NAME in map };
 }
 
+/** An MCP server another agent has configured, which moqi could use too. */
+export interface ImportableServer {
+  readonly name: string;
+  readonly from: string;
+  readonly config: { command: string; args?: string[]; env?: Record<string, string> };
+}
+
+/** stdio servers configured in other agents, except moqi itself; the first agent wins on a name clash. */
+export function importableServers(home: string, platform: NodeJS.Platform = process.platform): ImportableServer[] {
+  const known = knownHosts(home, platform).filter((h) => existsSync(h.marker));
+  const seen = new Set<string>();
+  const out: ImportableServer[] = [];
+  for (const host of [...known, ...unknownHosts(home, knownHosts(home, platform))]) {
+    if (!existsSync(host.config)) continue;
+    const parsed = readJson(host.config);
+    if (!parsed.ok || !isRecord(parsed.data) || !isRecord(parsed.data[host.key])) continue;
+    for (const [rawName, entry] of Object.entries(parsed.data[host.key] as Record<string, unknown>)) {
+      if (rawName === SERVER_NAME || !isRecord(entry) || typeof entry.command !== "string") continue;
+      const name = rawName.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 32);
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      const args = Array.isArray(entry.args) ? entry.args.filter((a): a is string => typeof a === "string") : undefined;
+      const env = isRecord(entry.env)
+        ? Object.fromEntries(Object.entries(entry.env).filter((e): e is [string, string] => typeof e[1] === "string"))
+        : undefined;
+      out.push({
+        name,
+        from: host.name,
+        config: { command: entry.command, ...(args && { args }), ...(env && { env }) },
+      });
+    }
+  }
+  return out;
+}
+
 function hostOf(id: string, home: string, platform: NodeJS.Platform): Host | undefined {
   const known = knownHosts(home, platform);
   return known.find((h) => h.id === id) ?? unknownHosts(home, known).find((h) => h.id === id);
@@ -236,6 +271,10 @@ export interface AgentsPluginOptions {
   readonly platform?: NodeJS.Platform;
   /** How often to look around. Default 10 minutes. */
   readonly everyMs?: number;
+  /** Adds MCP servers to moqi's own config; when given, moqi offers to use what other agents have. */
+  readonly useServers?: (servers: readonly ImportableServer[]) => string;
+  /** Names of the MCP servers moqi already has. */
+  readonly ownServers?: () => readonly string[];
 }
 
 const short = (path: string, home: string) => (path.startsWith(home) ? `~${path.slice(home.length)}` : path);
@@ -249,9 +288,49 @@ export function agentsPlugin(options: AgentsPluginOptions): Plugin {
   const platform = options.platform ?? process.platform;
   const everyMs = options.everyMs ?? 10 * 60_000;
   let lastLook = Number.NEGATIVE_INFINITY;
+
+  /** Tools other agents already use (Cursor's MCP servers, say) can be moqi's too, once the user agrees. */
+  const offerServers = (ctx: Parameters<NonNullable<Plugin["tick"]>>[0]) => {
+    if (!options.useServers) return;
+    const own = new Set(options.ownServers?.() ?? []);
+    const offered = new Set<string>();
+    for (const { offer } of ctx.state.offers.values()) {
+      if (offer.kind === "mcp.import")
+        for (const n of (offer.action?.args.names as string[] | undefined) ?? []) offered.add(n);
+    }
+    const fresh = importableServers(home, platform).filter((s) => !own.has(s.name) && !offered.has(s.name));
+    if (fresh.length === 0) return;
+    const list = fresh.map(
+      (s) => `- ${s.name}（来自 ${s.from}）：${[s.config.command, ...(s.config.args ?? [])].join(" ").slice(0, 80)}`,
+    );
+    ctx.offer({
+      kind: "mcp.import",
+      title: `其他 agent 里有 ${fresh.length} 个 MCP 工具，让 moqi 也能用吗？`,
+      body: `用上后，moqi 在对话和替你盯着的事里也能调用它们；会改动东西的工具，每次先问你。\n${list.join("\n")}`,
+      value: 0.5,
+      urgency: "whenever",
+      action: { tool: "use_mcp_servers", args: { names: fresh.map((s) => s.name) } },
+    });
+  };
+
   return {
     name: "agents",
     tools: [
+      defineTool({
+        name: "use_mcp_servers",
+        description: "Let moqi use MCP servers that other agents on this computer have configured, by name.",
+        input: z.object({ names: z.array(z.string()).min(1).max(20) }),
+        effect: "write",
+        cap: "suggest",
+        hidden: true,
+        describe: ({ names }) => `让 moqi 也能用 ${names.join("、")}`,
+        run: ({ names }) => {
+          if (!options.useServers) return "这里不能添加 MCP 工具";
+          const picked = importableServers(home, platform).filter((s) => names.includes(s.name));
+          if (picked.length === 0) return "这些工具已经找不到了";
+          return options.useServers(picked);
+        },
+      }),
       defineTool({
         name: "connect_agents",
         description: "Connect other agents on this computer to moqi over MCP, by id.",
@@ -277,6 +356,7 @@ export function agentsPlugin(options: AgentsPluginOptions): Plugin {
       const now = ctx.now();
       if (now - lastLook < everyMs) return;
       lastLook = now;
+      offerServers(ctx);
       const offered = new Set<string>();
       for (const { offer } of ctx.state.offers.values()) {
         if (offer.kind === "agent.connect")

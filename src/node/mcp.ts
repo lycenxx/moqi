@@ -18,7 +18,7 @@ interface ToolDef {
   readonly description: string;
   readonly inputSchema: Record<string, unknown>;
   readonly readOnly: boolean;
-  run(args: Record<string, unknown>, link: MoqiLink): Promise<string>;
+  run(args: Record<string, unknown>, link: MoqiLink, client: string | undefined): Promise<string>;
 }
 
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({
@@ -89,8 +89,8 @@ export const TOOLS: readonly ToolDef[] = [
       ["title"],
     ),
     readOnly: false,
-    run: async (args, link) => {
-      const r = await link.call("POST", "/api/tell", args);
+    run: async (args, link, client) => {
+      const r = await link.call("POST", "/api/tell", { ...args, from: args.from ?? client });
       if (r.surface === "notify") return `已通知用户（${String(r.reason)}）`;
       if (r.surface === "feed") return `已放进用户的动态，没有打扰（${String(r.reason)}）`;
       return `moqi 没有转告：${String(r.reason)}`;
@@ -103,7 +103,8 @@ export const TOOLS: readonly ToolDef[] = [
       "Send a message to moqi, the user's personal agent, and get its reply. It answers from what it knows about the user and can use its tools (weather, calendar, news, reminders). The message becomes part of the user's conversation with moqi, so write it as yourself, e.g. '我是 Cursor，用户今天的日程忙吗？'. Actions that change something still wait for the user's approval in moqi's console.",
     inputSchema: obj({ text: { type: "string", maxLength: 4000 } }, ["text"]),
     readOnly: false,
-    run: async (args, link) => String((await link.call("POST", "/api/chat", { text: args.text })).reply),
+    run: async (args, link, client) =>
+      String((await link.call("POST", "/api/chat", { text: args.text, from: client ?? "另一个 agent" })).reply),
   },
   {
     name: "moqi_feed",
@@ -139,10 +140,16 @@ export const TOOLS: readonly ToolDef[] = [
 type Rpc = { jsonrpc: "2.0"; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 
 /** Handles one JSON-RPC message; returns the reply, or undefined for notifications. */
+export interface McpSession {
+  /** The calling agent's name from its handshake, e.g. "cursor" or "kiro-cli". */
+  client?: string;
+}
+
 export async function handleMcp(
   message: Rpc,
   link: MoqiLink,
   version: string,
+  session: McpSession = {},
 ): Promise<Record<string, unknown> | undefined> {
   const { id, method, params } = message;
   if (id === undefined || id === null) return undefined; // a notification, e.g. notifications/initialized
@@ -151,6 +158,8 @@ export async function handleMcp(
   switch (method) {
     case "initialize": {
       const asked = String(params?.protocolVersion ?? "");
+      const info = params?.clientInfo as { name?: unknown } | undefined;
+      if (typeof info?.name === "string" && info.name.trim()) session.client = info.name.trim().slice(0, 40);
       return ok({
         protocolVersion: (MCP_VERSIONS as readonly string[]).includes(asked) ? asked : MCP_VERSIONS[0],
         capabilities: { tools: {} },
@@ -175,7 +184,7 @@ export async function handleMcp(
       const tool = TOOLS.find((t) => t.name === params?.name);
       if (!tool) return fail(-32602, `Unknown tool: ${String(params?.name)}`);
       try {
-        const text = await tool.run((params?.arguments ?? {}) as Record<string, unknown>, link);
+        const text = await tool.run((params?.arguments ?? {}) as Record<string, unknown>, link, session.client);
         return ok({ content: [{ type: "text", text }] });
       } catch (error) {
         return ok({
@@ -193,6 +202,7 @@ export async function handleMcp(
 export async function serveMcp(link: MoqiLink, version: string): Promise<void> {
   const rl = createInterface({ input: process.stdin, terminal: false });
   const pending = new Set<Promise<void>>();
+  const session: McpSession = {};
   const write = (reply: unknown) => process.stdout.write(`${JSON.stringify(reply)}\n`);
   for await (const line of rl) {
     if (line.trim() === "") continue;
@@ -204,7 +214,7 @@ export async function serveMcp(link: MoqiLink, version: string): Promise<void> {
       continue;
     }
     // Calls run side by side: a long moqi_ask must not hold up a ping.
-    const job: Promise<void> = handleMcp(message, link, version)
+    const job: Promise<void> = handleMcp(message, link, version, session)
       .then((reply) => {
         if (reply) write(reply);
       })

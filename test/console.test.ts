@@ -456,6 +456,48 @@ describe("console: connecting other agents", () => {
   });
 });
 
+describe("console: tools and agents moqi uses", () => {
+  const fixture = join(import.meta.dirname, "fixtures", "echo-mcp.mjs");
+
+  it("takes an MCP server from another agent, shows its tools, and removes it", async () => {
+    const { dir, osHome, home, api } = await start({ briefingAt: null }, () => ({ content: "好" }));
+    mkdirSync(join(osHome, ".cursor"), { recursive: true });
+    writeFileSync(
+      join(osHome, ".cursor", "mcp.json"),
+      JSON.stringify({ mcpServers: { echo: { command: process.execPath, args: [fixture] }, moqi: { command: "x" } } }),
+    );
+    const before = (await api("GET", "/api/interop")).data;
+    expect(before.servers).toEqual([]);
+    expect(before.importable).toEqual([{ name: "echo", from: "Cursor", command: `${process.execPath} ${fixture}` }]);
+    expect(before.a2a).toMatchObject({ agents: [] });
+
+    expect((await api("POST", "/api/mcp/import", { names: ["echo"] })).data).toEqual({ ok: true, names: ["echo"] });
+    expect(readConfigFile(dir).mcp?.servers.echo).toEqual({ command: process.execPath, args: [fixture] });
+    for (let i = 0; i < 200 && home.mcpStatus()[0]?.state !== "ready"; i++) await new Promise((r) => setTimeout(r, 20));
+    const after = (await api("GET", "/api/interop")).data;
+    expect(after.servers).toMatchObject([{ name: "echo", state: "ready", tools: 4, error: null }]);
+    expect(after.importable).toEqual([]);
+
+    expect((await api("POST", "/api/mcp/remove", { name: "echo" })).status).toBe(200);
+    expect(home.mcpStatus()).toEqual([]);
+    expect((await api("POST", "/api/mcp/add", { name: "bad name!", command: "x" })).status).toBe(400);
+  });
+
+  it("adds and removes A2A agents moqi may ask, without sending their keys to the page", async () => {
+    const { dir, home, api } = await start({ briefingAt: null });
+    expect(
+      (await api("POST", "/api/a2a/add", { name: "travel", url: "https://travel.example", key: "secret" })).status,
+    ).toBe(200);
+    expect(readConfigFile(dir).a2a?.agents).toEqual([{ name: "travel", url: "https://travel.example", key: "secret" }]);
+    const listed = (await api("GET", "/api/interop")).data.a2a.agents;
+    expect(listed).toEqual([{ name: "travel", url: "https://travel.example", hasKey: true }]);
+    expect(JSON.stringify(listed)).not.toContain("secret");
+    expect(home.moqi.tool("ask_travel")?.effect).toBe("write"); // asking another agent is asked first
+    expect((await api("POST", "/api/a2a/remove", { name: "travel" })).status).toBe(200);
+    expect(home.moqi.tool("ask_travel")).toBeUndefined();
+  });
+});
+
 describe("confirm queue", () => {
   it("treats an unanswered question as no, and only one question is open at a time", async () => {
     const asker = confirmQueue(30);

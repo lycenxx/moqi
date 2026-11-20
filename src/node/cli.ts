@@ -8,7 +8,7 @@ import { activeFacts } from "../core/memory.js";
 import { describeSchedule } from "../core/schedule.js";
 import type { Offer, Surface, Verdict } from "../core/types.js";
 import { moqiHome, writeTemplate } from "./config.js";
-import { consoleAddress, consoleToken, runningConsole, writeConsoleInfo } from "./console/info.js";
+import { a2aKeyFor, consoleAddress, consoleToken, runningConsole, writeConsoleInfo } from "./console/info.js";
 import { confirmQueue, DEFAULT_PORT, startConsole } from "./console/server.js";
 import { lockHolder } from "./file-store.js";
 import { type Home, openHome } from "./home.js";
@@ -22,6 +22,7 @@ const HELP = `moqi — 不用开口就懂你的个人 agent
   moqi chat       在终端里对话（后台的 moqi 没在运行时）
   moqi daemon     在前台运行，不开浏览器（给 launchd、systemd 这类服务管理器用）
   moqi mcp        MCP 服务（stdio），让 Kiro、Cursor 等其他 agent 和 moqi 交流
+  moqi a2a        显示 A2A 的地址和钥匙，让支持 A2A 的 agent 和 moqi 交流
   moqi init       在 ~/.moqi/config.json 写一份配置模板
 
 对话里的命令：
@@ -175,6 +176,11 @@ async function interactive(): Promise<void> {
   }
 }
 
+function pkgVersion(): string {
+  return (JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string })
+    .version;
+}
+
 async function main(): Promise<void> {
   const [cmd] = process.argv.slice(2);
   const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };
@@ -187,6 +193,7 @@ async function main(): Promise<void> {
   if (cmd === "stop") return stop();
   if (cmd === "brief") return brief();
   if (cmd === "mcp") return mcp(pkg.version);
+  if (cmd === "a2a") return a2a();
   if (cmd === "chat") {
     const running = runningConsole(moqiHome());
     if (running)
@@ -206,8 +213,9 @@ async function daemon(): Promise<void> {
   const home = openHome({ home: dir, onDeliver: (o, s) => console.log(show(o, s)), confirm: (q) => asker.ask(q) });
   const stopBeat = heartbeat(home, (e) => console.error(`moqi: ${e instanceof Error ? e.message : String(e)}`));
   const token = consoleToken(dir);
-  const ui = await startConsole({ home, asker, token, port: DEFAULT_PORT });
-  writeConsoleInfo(dir, { pid: process.pid, port: ui.port, token });
+  const a2aKey = a2aKeyFor(dir);
+  const ui = await startConsole({ home, asker, token, a2aKey, version: pkgVersion(), port: DEFAULT_PORT });
+  writeConsoleInfo(dir, { pid: process.pid, port: ui.port, token, a2aKey });
   console.log(
     `moqi 在后台留意着（${home.logPath}）。\n控制台：${consoleAddress(ui.port)}\n第一次用这个带钥匙的链接打开：${ui.url}`,
   );
@@ -258,6 +266,14 @@ async function ensureRunning(dir: string, say: (line: string) => void) {
     say(`moqi 在后台运行了（pid ${running.pid}）。停掉它：moqi stop`);
   }
   return running;
+}
+
+/** Where other agents find moqi over A2A, and the key they need. */
+async function a2a(): Promise<void> {
+  const running = await ensureRunning(moqiHome(), (line) => console.log(line));
+  if (!running.a2aKey) throw new Error("后台的 moqi 是旧版本，先 moqi stop 再 moqi");
+  console.log(`A2A agent card：${consoleAddress(running.port)}/.well-known/agent-card.json`);
+  console.log(`钥匙（请求头 Authorization: Bearer <钥匙>）：${running.a2aKey}`);
 }
 
 /** MCP over stdio for other agents. stdout carries the protocol only; everything else goes to stderr. */

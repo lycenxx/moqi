@@ -122,6 +122,22 @@ describe("study", () => {
     ]);
   });
 
+  it("goes back to reading once the feedback has been reviewed", async () => {
+    const model = scriptedModel((r) => {
+      const k = kindOf(r);
+      if (k === "lessons") return JSON.stringify({ lessons: ["早上的提醒更有用"] });
+      if (k === "pick") return JSON.stringify({ topic: "周末", refs: ["n1"] });
+      if (k === "note") return JSON.stringify({ notes: ["周末有音乐节"] });
+      return "{}";
+    });
+    const { moqi } = harness({ model, plugins: [articles()] });
+    await giveFeedback(moqi, ["accepted", "dismissed", "accepted"]);
+    await moqi.study();
+    expect(moqi.state.studies.at(-1)?.mode).toBe("lessons");
+    await moqi.study(); // no new reactions since: read instead
+    expect(moqi.state.studies.at(-1)?.mode).toBe("world");
+  });
+
   it("reviews feedback only when there is new feedback, and falls back to it when nothing can be read", async () => {
     const model = scriptedModel((r) =>
       kindOf(r) === "lessons" ? JSON.stringify({ lessons: ["早上的提醒更有用"] }) : "{}",

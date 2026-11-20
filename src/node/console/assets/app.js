@@ -715,6 +715,7 @@ async function loadSettings() {
     $("budget").value = String(config.dailyBudget);
     showNews(config.news ? config.news.feeds : null);
     await loadAgents();
+    await loadInterop();
   } catch (error) {
     toast(error.message);
   }
@@ -745,6 +746,153 @@ function modelInput() {
     effort: effort || undefined,
   };
 }
+
+const STATE_WORDS = { starting: "启动中", ready: "可用", failed: "出错了", stopped: "没在运行" };
+let interopTimer = 0;
+
+function row(title, meta, button, tag) {
+  return h(
+    "div",
+    { class: "item" },
+    h(
+      "div",
+      { class: "item-main" },
+      h("p", { class: "item-text" }, tag ? h("span", { class: "tag", text: tag }) : null, title),
+      h("p", { class: "item-meta", text: meta }),
+    ),
+    button,
+  );
+}
+
+function actionButton(text, primary, run) {
+  const b = h("button", { type: "button", class: primary ? "btn primary" : "btn", text });
+  b.addEventListener("click", async () => {
+    b.disabled = true;
+    try {
+      const message = await run();
+      if (message) toast(message);
+    } catch (error) {
+      toast(error.message);
+    }
+    loadInterop();
+  });
+  return b;
+}
+
+async function loadInterop() {
+  let data;
+  try {
+    data = await api("GET", "/api/interop");
+  } catch (error) {
+    $("mcp-servers").replaceChildren(h("p", { class: "hint", text: error.message }));
+    return;
+  }
+  const servers = $("mcp-servers");
+  servers.replaceChildren();
+  if (data.servers.length === 0)
+    servers.append(h("p", { class: "none", text: "还没有 MCP 工具。可以从下面其他 agent 的工具里选，或手动添加。" }));
+  for (const s of data.servers) {
+    const meta =
+      s.state === "ready"
+        ? `${s.tools} 个工具 · ${s.command}`
+        : `${STATE_WORDS[s.state] || s.state}${s.error ? `：${s.error}` : ""} · ${s.command}`;
+    servers.append(
+      row(
+        s.name,
+        meta,
+        actionButton("移除", false, async () => {
+          await api("POST", "/api/mcp/remove", { name: s.name });
+          return `已移除 ${s.name}`;
+        }),
+        s.state === "ready" ? "可用" : null,
+      ),
+    );
+  }
+  // A server takes a moment to start: look again until none is starting.
+  clearTimeout(interopTimer);
+  if (data.servers.some((s) => s.state === "starting") && view === "settings")
+    interopTimer = setTimeout(loadInterop, 1000);
+  const importable = $("mcp-import");
+  importable.replaceChildren();
+  for (const s of data.importable) {
+    importable.append(
+      row(
+        s.name,
+        `来自 ${s.from} · ${s.command}`,
+        actionButton("也给 moqi 用", true, async () => {
+          await api("POST", "/api/mcp/import", { names: [s.name] });
+          return `${s.name} 正在启动`;
+        }),
+      ),
+    );
+  }
+  const self = $("a2a-self");
+  self.replaceChildren();
+  if (data.a2a.card) {
+    const reveal = h("button", { type: "button", class: "btn", text: "显示钥匙" });
+    const meta = h("p", { class: "item-meta", text: data.a2a.card });
+    reveal.addEventListener("click", () => {
+      meta.textContent = `${data.a2a.card}\n钥匙：${data.a2a.key}`;
+      meta.style.whiteSpace = "pre-wrap";
+      reveal.remove();
+    });
+    self.append(
+      h(
+        "div",
+        { class: "item" },
+        h("div", { class: "item-main" }, h("p", { class: "item-text", text: "moqi 的 agent card" }), meta),
+        reveal,
+      ),
+    );
+  } else {
+    self.append(h("p", { class: "hint", text: "后台的 moqi 是旧版本，重启后才有 A2A。" }));
+  }
+  const agents = $("a2a-agents");
+  agents.replaceChildren();
+  if (data.a2a.agents.length === 0)
+    agents.append(h("p", { class: "none", text: "还没有。添加后，moqi 在对话里需要时会去问它们（每次先问你）。" }));
+  for (const a of data.a2a.agents) {
+    agents.append(
+      row(
+        a.name,
+        `${a.url}${a.hasKey ? " · 带钥匙" : ""}`,
+        actionButton("移除", false, async () => {
+          await api("POST", "/api/a2a/remove", { name: a.name });
+          return `已移除 ${a.name}`;
+        }),
+      ),
+    );
+  }
+}
+
+$("mcp-add").addEventListener("click", async () => {
+  const name = $("mcp-name").value.trim();
+  const parts = $("mcp-command").value.trim().split(/\s+/).filter(Boolean);
+  if (!name || parts.length === 0) return toast("名字和启动命令都要填");
+  try {
+    await api("POST", "/api/mcp/add", { name, command: parts[0], args: parts.slice(1) });
+    $("mcp-name").value = "";
+    $("mcp-command").value = "";
+    toast(`${name} 正在启动`);
+  } catch (error) {
+    toast(error.message);
+  }
+  loadInterop();
+});
+
+$("a2a-add").addEventListener("click", async () => {
+  const name = $("a2a-name").value.trim();
+  const url = $("a2a-url").value.trim();
+  if (!name || !url) return toast("名字和地址都要填");
+  try {
+    await api("POST", "/api/a2a/add", { name, url, key: $("a2a-key").value.trim() || undefined });
+    for (const id of ["a2a-name", "a2a-url", "a2a-key"]) $(id).value = "";
+    toast(`已添加 ${name}`);
+  } catch (error) {
+    toast(error.message);
+  }
+  loadInterop();
+});
 
 async function loadAgents() {
   const box = $("agents");

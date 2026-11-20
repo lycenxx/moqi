@@ -1,6 +1,6 @@
 // The console: a page on 127.0.0.1 for chatting, answering offers, seeing memories and changing settings.
 // It is served by the running home, so the page, the terminal and (later) the phone all go through one process.
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -10,9 +10,11 @@ import { describeSchedule } from "../../core/schedule.js";
 import type { FactKind, Urgency, Verdict } from "../../core/types.js";
 import { parseIcs } from "../../plugins/calendar.js";
 import { NEWS_FEEDS } from "../../plugins/news.js";
-import { connectAgent, disconnectAgent, findAgents } from "../agents.js";
+import { connectAgent, disconnectAgent, findAgents, importableServers } from "../agents.js";
+import type { Config } from "../config.js";
 import { ConfigSchema, expandHome, loadConfig, readConfigFile, saveConfig } from "../config.js";
 import type { Home } from "../home.js";
+import { A2A_PATH, AGENT_CARD_PATH, agentCard, handleA2A } from "./a2a.js";
 import { CONSOLE_HOST, consoleUrl } from "./info.js";
 
 /** M-O-Q-I on a phone keypad. */
@@ -70,6 +72,10 @@ export interface ConsoleOptions {
   readonly port?: number;
   readonly fetch?: typeof fetch;
   readonly env?: NodeJS.ProcessEnv;
+  /** Key other agents present over A2A (`Authorization: Bearer …`). Without it, A2A is off. */
+  readonly a2aKey?: string;
+  /** moqi's version, for the A2A agent card. */
+  readonly version?: string;
 }
 
 export interface Console {
@@ -125,10 +131,25 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       : undefined;
   };
 
-  const tokenOk = (value: string | string[] | undefined) => {
+  const same = (value: string | string[] | undefined, want: Buffer) => {
     if (typeof value !== "string") return false;
     const given = Buffer.from(value);
-    return given.length === expected.length && timingSafeEqual(given, expected);
+    return given.length === want.length && timingSafeEqual(given, want);
+  };
+  const tokenOk = (value: string | string[] | undefined) => same(value, expected);
+  const a2aKey = options.a2aKey ? Buffer.from(`Bearer ${options.a2aKey}`) : undefined;
+  /** Another agent's message joins the conversation marked as theirs, so moqi never takes it for the user's words. */
+  const fromAgent = (text: string, from: unknown) =>
+    typeof from === "string" && from.trim() ? `【${from.trim().slice(0, 40)}】${text}` : text;
+
+  /** Changes moqi's own config file and applies it, the same way the settings page does. */
+  const updateConfig = async (change: (c: Config) => Config) => {
+    if (asker.pending()) throw new HttpError(409, "moqi 正在等你回答一个问题，先回答再改");
+    const parsed = ConfigSchema.safeParse(change(readConfigFile(home.dir)));
+    if (!parsed.success)
+      throw new HttpError(400, parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("；"));
+    saveConfig(home.dir, parsed.data);
+    await home.reconfigure(loadConfig(home.dir, env));
   };
 
   const routes: Record<string, (body: Record<string, unknown>, url: URL) => Promise<unknown> | unknown> = {
@@ -215,7 +236,7 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       if (!home.moqi.model) throw new HttpError(409, "还没配置模型，先去设置里接一个");
       chatting++;
       try {
-        return { reply: await home.serial(() => home.moqi.chat(text)) };
+        return { reply: await home.serial(() => home.moqi.chat(fromAgent(text, body.from))) };
       } catch (error) {
         throw new HttpError(502, `模型出错了：${message(error)}`);
       } finally {
@@ -295,6 +316,91 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
     "POST /api/learned/remove": async (body) => {
       const id = str(body.id, "id");
       return { message: await home.serial(async () => home.moqi.forgetLearned(id)) };
+    },
+
+    // What moqi uses from other agents (MCP servers, A2A agents) and how others reach it (A2A).
+    "GET /api/interop": (_body, url) => {
+      const file = readConfigFile(home.dir);
+      const status = new Map(home.mcpStatus().map((s) => [s.name, s]));
+      const servers = Object.entries(file.mcp?.servers ?? {}).map(([name, c]) => ({
+        name,
+        command: [c.command, ...(c.args ?? [])].join(" "),
+        state: status.get(name)?.state ?? "stopped",
+        tools: status.get(name)?.tools.length ?? 0,
+        error: status.get(name)?.error ?? null,
+      }));
+      const own = new Set(servers.map((s) => s.name));
+      const importable = home.agents
+        ? importableServers(home.agents.home, home.agents.platform)
+            .filter((s) => !own.has(s.name))
+            .map((s) => ({
+              name: s.name,
+              from: s.from,
+              command: [s.config.command, ...(s.config.args ?? [])].join(" "),
+            }))
+        : [];
+      return {
+        servers,
+        importable,
+        a2a: {
+          card: options.a2aKey ? `${url.protocol}//${url.host}${AGENT_CARD_PATH}` : null,
+          key: options.a2aKey ?? null,
+          agents: (file.a2a?.agents ?? []).map((a) => ({ name: a.name, url: a.url, hasKey: !!a.key })),
+        },
+      };
+    },
+
+    "POST /api/mcp/add": async (body) => {
+      const name = str(body.name, "name").trim();
+      const command = str(body.command, "command").trim();
+      const args = Array.isArray(body.args) ? body.args.filter((a): a is string => typeof a === "string") : [];
+      await updateConfig((c) => ({
+        ...c,
+        mcp: { servers: { ...c.mcp?.servers, [name]: { command, ...(args.length && { args }) } } },
+      }));
+      return { ok: true };
+    },
+
+    "POST /api/mcp/import": async (body) => {
+      const names = Array.isArray(body.names) ? body.names.filter((n): n is string => typeof n === "string") : [];
+      const picked = home.agents
+        ? importableServers(home.agents.home, home.agents.platform).filter((s) => names.includes(s.name))
+        : [];
+      if (picked.length === 0) throw new HttpError(404, "没找到这些工具");
+      await updateConfig((c) => {
+        const servers = { ...c.mcp?.servers };
+        for (const s of picked) servers[s.name] = s.config;
+        return { ...c, mcp: { servers } };
+      });
+      return { ok: true, names: picked.map((s) => s.name) };
+    },
+
+    "POST /api/mcp/remove": async (body) => {
+      const name = str(body.name, "name");
+      await updateConfig((c) => {
+        const { [name]: _gone, ...servers } = c.mcp?.servers ?? {};
+        return { ...c, mcp: { servers } };
+      });
+      return { ok: true };
+    },
+
+    "POST /api/a2a/add": async (body) => {
+      const agent = {
+        name: str(body.name, "name").trim(),
+        url: str(body.url, "url").trim(),
+        ...(typeof body.key === "string" && body.key.trim() && { key: body.key.trim() }),
+      };
+      await updateConfig((c) => ({
+        ...c,
+        a2a: { agents: [...(c.a2a?.agents ?? []).filter((a) => a.name !== agent.name), agent] },
+      }));
+      return { ok: true };
+    },
+
+    "POST /api/a2a/remove": async (body) => {
+      const name = str(body.name, "name");
+      await updateConfig((c) => ({ ...c, a2a: { agents: (c.a2a?.agents ?? []).filter((a) => a.name !== name) } }));
+      return { ok: true };
     },
 
     "POST /api/reflect": async () => {
@@ -435,6 +541,37 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
     if (![CONSOLE_HOST, "localhost", "127.0.0.1"].some((name) => host === `${name}:${port}`))
       return send(res, 403, { error: "forbidden" });
     const url = new URL(req.url ?? "/", `http://${host}`);
+    if (a2aKey && url.pathname === AGENT_CARD_PATH && req.method === "GET") {
+      return send(res, 200, agentCard(`http://${host}`, options.version ?? "0.0.0"));
+    }
+    if (a2aKey && url.pathname === A2A_PATH && req.method === "POST") {
+      if (!same(req.headers.authorization, a2aKey)) {
+        return send(res, 401, {
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32600, message: "需要 moqi 的 A2A 钥匙：运行 moqi a2a 查看" },
+        });
+      }
+      let body: Record<string, unknown>;
+      try {
+        body = await readJson(req);
+      } catch (error) {
+        return send(res, 200, { jsonrpc: "2.0", id: null, error: { code: -32700, message: message(error) } });
+      }
+      const reply = await handleA2A(body, {
+        newId: () => randomUUID(),
+        chat: async (text, from) => {
+          if (!home.moqi.model) throw new Error("moqi 还没配置模型");
+          chatting++;
+          try {
+            return await home.serial(() => home.moqi.chat(fromAgent(text, from ?? "另一个 agent")));
+          } finally {
+            chatting--;
+          }
+        },
+      });
+      return send(res, 200, reply);
+    }
     const asset = req.method === "GET" ? assets[url.pathname] : undefined;
     if (asset) {
       res.writeHead(200, { ...SECURITY_HEADERS, "Content-Type": asset.type });

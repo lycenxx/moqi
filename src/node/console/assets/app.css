@@ -1021,3 +1021,31 @@ input.short {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+.more {
+  margin-top: 12px;
+}
+
+.more summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  color: var(--accent);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.more[open] summary {
+  margin-bottom: 8px;
+}
+
+.minor {
+  margin: 20px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+#mcp-import:not(:empty) {
+  margin-top: 12px;
+}
