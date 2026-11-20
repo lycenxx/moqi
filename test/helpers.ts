@@ -57,6 +57,7 @@ export function harness(
     clock,
     briefingAt: null,
     reflect: false, // reflection has its own tests; elsewhere it would consume scripted replies
+    study: false,
     deliver: (offer, surface) => void delivered.push({ offer, surface }),
     confirm: async (q) => {
       asked.push(q);

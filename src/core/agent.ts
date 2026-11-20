@@ -3,6 +3,7 @@ import { activeFacts, promptSection } from "./memory.js";
 import type { ChatMessage } from "./model.js";
 import type { Moqi } from "./moqi.js";
 import { toolSpec } from "./plugin.js";
+import { studySection } from "./study.js";
 import type { MoqiEvent } from "./types.js";
 
 export const AGENT = { maxToolRounds: 6, historyMessages: 12 } as const;
@@ -18,7 +19,9 @@ const GUIDE = `## 做事的方式
 export function systemPrompt(moqi: Moqi): string {
   const now = new Date(moqi.clock.now());
   const time = `现在是 ${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 周${WEEKDAYS[now.getDay()]} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}。`;
-  return [moqi.persona, time, promptSection(moqi.state, moqi.clock.now()), GUIDE].filter(Boolean).join("\n\n");
+  return [moqi.persona, time, promptSection(moqi.state, moqi.clock.now()), studySection(moqi.state), GUIDE]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function history(events: readonly MoqiEvent[], limit: number): ChatMessage[] {

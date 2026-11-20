@@ -6,8 +6,9 @@ import { z } from "zod";
 import { parseJsonObject } from "./learn.js";
 import { activeFacts, normalize, promptSection } from "./memory.js";
 import type { Moqi } from "./moqi.js";
-import { type OfferInput, toolSpec } from "./plugin.js";
+import { type OfferInput, type Plugin, toolSpec } from "./plugin.js";
 import { dayKey, describeSchedule } from "./schedule.js";
+import { studySection } from "./study.js";
 import type { Idea, IdeaType } from "./types.js";
 
 export const REFLECT = {
@@ -195,18 +196,25 @@ function repeated(moqi: Moqi, kind: string, title: string, now: number): boolean
   return false;
 }
 
-async function gatherContext(
-  moqi: Moqi,
-): Promise<{ text: string; links: Record<string, { title: string; url: string }> }> {
+/** What every source knows right now, its keyed links, and which source each link came from. */
+export async function gatherContext(moqi: Moqi): Promise<{
+  text: string;
+  links: Record<string, { title: string; url: string }>;
+  owners: Record<string, Plugin>;
+}> {
   const ctx = moqi.pluginContext();
   const parts: string[] = [];
   const links: Record<string, { title: string; url: string }> = {};
+  const owners: Record<string, Plugin> = {};
   for (const plugin of moqi.plugins) {
     try {
       if (plugin.context) {
         const c = await plugin.context(ctx);
         if (c?.text) parts.push(`【${plugin.name}】\n${c.text}`);
-        Object.assign(links, c?.links ?? {});
+        for (const [key, link] of Object.entries(c?.links ?? {})) {
+          links[key] = link;
+          owners[key] = plugin;
+        }
       } else if (plugin.briefing) {
         const s = await plugin.briefing(ctx);
         if (s) parts.push(`【${s.title}】\n${s.lines.join("\n")}`);
@@ -215,7 +223,7 @@ async function gatherContext(
       // A source that fails this time is simply not part of this thought.
     }
   }
-  return { text: parts.join("\n\n"), links };
+  return { text: parts.join("\n\n"), links, owners };
 }
 
 function briefOf(moqi: Moqi, now: number, situation: string, questionsLeft: number): string {
@@ -239,6 +247,7 @@ function briefOf(moqi: Moqi, now: number, situation: string, questionsLeft: numb
   return [
     `现在：${time}（${dayKey(now)}）`,
     promptSection(moqi.state, now) || "## 你对用户的了解\n（还不了解，可以问问）",
+    studySection(moqi.state),
     `## 最近的对话\n${messages.join("\n") || "（还没聊过）"}`,
     `## 眼下的情况\n${situation || "（没有接入信息源）"}`,
     `## 正在替用户盯着的事\n${watches.join("\n") || "（没有）"}`,
@@ -247,5 +256,7 @@ function briefOf(moqi: Moqi, now: number, situation: string, questionsLeft: numb
     `今天还能问 ${questionsLeft} 个问题${questionsLeft === 0 ? "，这次不要出 ask" : ""}。${
       questionsLeft > 0 && activeFacts(moqi.state, now).length < 5 ? "你对用户还了解得很少，这次至少出一个 ask。" : ""
     }`,
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }

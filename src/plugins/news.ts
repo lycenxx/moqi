@@ -64,6 +64,19 @@ function atomLink(block: string): string | undefined {
   return pick ? /\bhref=["']([^"']+)["']/.exec(pick)?.[1] : undefined;
 }
 
+/** The readable text of an article page: the <article> (or <main>, or <body>) without scripts, styles and chrome. */
+export function articleText(html: string): string {
+  const cleaned = html
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(script|style|noscript|svg|nav|header|footer|aside|form|iframe)\b[\s\S]*?<\/\1>/gi, " ");
+  const part =
+    /<article\b[^>]*>([\s\S]*?)<\/article>/i.exec(cleaned)?.[1] ??
+    /<main\b[^>]*>([\s\S]*?)<\/main>/i.exec(cleaned)?.[1] ??
+    /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(cleaned)?.[1] ??
+    cleaned;
+  return decode(part.replace(/<\/(p|div|li|h[1-6]|br|tr)>|<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, " "));
+}
+
 /** RSS 2.0 and Atom, read leniently: a broken item is skipped, not the whole feed. */
 export function parseFeed(xml: string, source: string): NewsItem[] {
   const blocks = xml.match(/<item[\s>][\s\S]*?<\/item>/gi) ?? xml.match(/<entry[\s>][\s\S]*?<\/entry>/gi) ?? [];
@@ -123,6 +136,13 @@ export function newsPlugin(options: NewsOptions): Plugin {
 
   return {
     name: "news",
+    // Only articles this plugin listed itself: a model cannot send it to any other address.
+    read: async (url, ctx) => {
+      const items = await latest(ctx.now());
+      if (!items.some((it) => it.url === url)) return undefined;
+      const html = await fetchText(doFetch, url, 20_000);
+      return articleText(html.slice(0, 2_000_000)).slice(0, 20_000);
+    },
     tools: [
       defineTool({
         name: "news",

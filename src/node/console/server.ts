@@ -196,6 +196,10 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
         busy: chatting > 0,
         question: asker.pending() ?? null,
         thinking: moqi.isReflecting,
+        studying: moqi.isStudying,
+        lessons: [...moqi.state.lessons.values()].reverse(),
+        notes: [...moqi.state.notes.values()].reverse().slice(0, 30),
+        lastStudy: moqi.state.studies.at(-1) ?? null,
         messages,
         offers,
         facts,
@@ -281,6 +285,16 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       } catch (error) {
         throw new HttpError(409, message(error));
       }
+    },
+
+    "POST /api/study": async () => {
+      if (!home.moqi.model) throw new HttpError(409, "还没配置模型，先去设置里接一个");
+      return { learned: await home.moqi.study("user") };
+    },
+
+    "POST /api/learned/remove": async (body) => {
+      const id = str(body.id, "id");
+      return { message: await home.serial(async () => home.moqi.forgetLearned(id)) };
     },
 
     "POST /api/reflect": async () => {

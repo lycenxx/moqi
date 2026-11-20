@@ -9,6 +9,7 @@ import { REFLECT, reflect } from "./reflect.js";
 import { findRoutines } from "./routines.js";
 import { dayKey, describeSchedule, minuteOfDay, nextRun, parseTime } from "./schedule.js";
 import { State } from "./state.js";
+import { STUDY, studiedOn, study } from "./study.js";
 import { builtinTools, type Kernel } from "./tools.js";
 import {
   type Clock,
@@ -42,6 +43,8 @@ export interface MoqiOptions {
   readonly confirm?: (question: string) => Promise<boolean>;
   /** Think about the user on its own between conversations (needs a model). Default true. */
   readonly reflect?: boolean;
+  /** Learn on its own while the user is away: lessons from feedback, notes from articles. Default true. */
+  readonly study?: boolean;
 }
 
 export interface TickReport {
@@ -60,6 +63,7 @@ export class Moqi {
   private readonly tools = new Map<string, Tool>();
   private readonly background = new Set<Promise<unknown>>();
   private thinking: Promise<Idea[]> | undefined;
+  private studying: Promise<number> | undefined;
   private readonly options: MoqiOptions;
 
   constructor(options: MoqiOptions = {}) {
@@ -140,6 +144,34 @@ export class Moqi {
 
   get isReflecting(): boolean {
     return this.thinking !== undefined;
+  }
+
+  get isStudying(): boolean {
+    return this.studying !== undefined;
+  }
+
+  /** Learns something now: lessons when there is new feedback to review, otherwise from an article. */
+  study(trigger: "timer" | "user" = "user"): Promise<number> {
+    if (this.studying) return this.studying;
+    const run = study(this, trigger).finally(() => {
+      this.studying = undefined;
+    });
+    this.studying = run;
+    this.track(run);
+    return run;
+  }
+
+  /** The user deletes something moqi learned. */
+  forgetLearned(id: string): string {
+    if (this.state.lessons.has(id)) {
+      this.emit({ type: "lesson.removed", lessonId: id });
+      return "这条经验删掉了";
+    }
+    if (this.state.notes.has(id)) {
+      this.emit({ type: "note.removed", noteId: id });
+      return "这条笔记删掉了";
+    }
+    return `没有 ${id}`;
   }
 
   /** Thinks about the user now and offers what comes of it. One reflection at a time. */
@@ -343,6 +375,7 @@ export class Moqi {
     await this.maybeBrief(now);
     await this.offerRoutines(now);
     this.maybeReflect(now);
+    this.maybeStudy(now);
     const offers = [...this.state.offers.values()].slice(before).map((r) => r.offer);
     return { watchesRun, offers };
   }
@@ -389,13 +422,24 @@ export class Moqi {
 
   /** Every couple of hours while the user is awake, and soon after a conversation settles. In the background. */
   private maybeReflect(now: number): void {
-    if (!this.model || this.options.reflect === false || this.thinking) return;
+    if (!this.model || this.options.reflect === false || this.thinking || this.studying) return;
     if (inQuietHours(this.policy, now)) return;
     const last = this.state.thoughts.at(-1)?.at ?? 0;
     if (now - last < REFLECT.minGapMs) return;
     const settled = this.state.lastUserMessageAt > last && now - this.state.lastUserMessageAt >= REFLECT.afterChatMs;
     if (settled) void this.reflect("chat");
     else if (now - last >= REFLECT.everyMs) void this.reflect("timer");
+  }
+
+  /** While the user is away and awake hours last: a few times a day, never alongside a reflection. */
+  private maybeStudy(now: number): void {
+    if (!this.model || this.options.study === false || this.thinking || this.studying) return;
+    if (inQuietHours(this.policy, now)) return;
+    if (now - this.state.lastUserMessageAt < STUDY.idleMs) return;
+    if (studiedOn(this.state, now) >= STUDY.perDay) return;
+    const last = [...this.state.studies].reverse().find((s) => s.trigger === "timer")?.at ?? 0;
+    if (now - last < STUDY.minGapMs) return;
+    void this.study("timer");
   }
 
   private async maybeBrief(now: number): Promise<void> {

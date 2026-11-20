@@ -43,12 +43,15 @@ export const TOOLS: readonly ToolDef[] = [
       const s = (await link.call("GET", "/api/state")) as {
         facts: Fact[];
         watches: { title: string; schedule: string }[];
+        lessons?: { content: string }[];
       };
       const facts = s.facts.filter((f) => !f.faded);
       const lines = facts.map((f) => `- ${f.content}${f.term === "long" ? "" : `（印证 ${f.confirmations}/3）`}`);
       const watches = s.watches.map((w) => `- ${w.title}（${w.schedule}）`);
+      const lessons = (s.lessons ?? []).map((l) => `- ${l.content}`);
       return [
         facts.length ? `moqi 对用户的了解：\n${lines.join("\n")}` : "moqi 对用户还没有了解。",
+        lessons.length ? `和用户相处的经验：\n${lessons.join("\n")}` : "",
         watches.length ? `moqi 正在替用户盯着：\n${watches.join("\n")}` : "",
       ]
         .filter(Boolean)

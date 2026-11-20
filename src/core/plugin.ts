@@ -84,4 +84,6 @@ export interface Plugin {
   tick?(ctx: PluginContext): Promise<void> | void;
   /** What this source knows now, for reflection. Without it, reflection reads the briefing section. */
   context?(ctx: PluginContext): Promise<SourceContext | undefined> | SourceContext | undefined;
+  /** The readable text behind one of the links this source gave in `context`, for moqi to study. */
+  read?(url: string, ctx: PluginContext): Promise<string | undefined> | string | undefined;
 }

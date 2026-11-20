@@ -28,6 +28,7 @@ function fakeNet(model: (body: { messages: { role: string; content: string }[] }
         "<rss><channel><item><title>深圳明天暴雨</title><link>https://feed.test/rain</link></item></channel></rss>",
       );
     }
+    if (url === "https://feed.test/rain") return new Response("<article><p>气象台说深圳明天有暴雨。</p></article>");
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
   return { fetch: impl, seen };
@@ -390,6 +391,33 @@ describe("console: moqi thinking", () => {
       config: { ...got.config, model: null, news: { feeds: [{ name: "x", url: "not a url" }] } },
     });
     expect(bad.status).toBe(400);
+  });
+});
+
+describe("console: what moqi learned", () => {
+  it("studies on request, shows lessons and notes with sources, and deletes them", async () => {
+    const { home, api } = await start(
+      { model: MODEL, briefingAt: null, news: { feeds: [{ name: "T", url: "https://feed.test/rss" }] } },
+      (body) => {
+        const system = body.messages[0]?.content ?? "";
+        if (system.includes("你在自学")) return { content: '{"topic":"深圳天气","refs":["n1"]}' };
+        if (system.includes("正在为用户读一篇文章")) return { content: '{"notes":["深圳明天有暴雨"]}' };
+        return { content: "{}" };
+      },
+    );
+    expect((await api("POST", "/api/study", {})).data).toEqual({ learned: 1 });
+    const s = (await api("GET", "/api/state")).data;
+    expect(s.studying).toBe(false);
+    expect(s.lastStudy).toMatchObject({ mode: "world", topic: "深圳天气", learned: 1 });
+    expect(s.notes).toMatchObject([
+      { content: "深圳明天有暴雨", source: { title: "深圳明天暴雨", url: "https://feed.test/rain" } },
+    ]);
+    home.moqi.emit({ type: "lesson.learned", lesson: { id: "l_x", content: "早上提醒更有用", at: 1 } });
+    expect((await api("GET", "/api/state")).data.lessons).toMatchObject([{ id: "l_x", content: "早上提醒更有用" }]);
+    expect((await api("POST", "/api/learned/remove", { id: "l_x" })).data.message).toBe("这条经验删掉了");
+    expect((await api("POST", "/api/learned/remove", { id: s.notes[0].id })).data.message).toBe("这条笔记删掉了");
+    const after = (await api("GET", "/api/state")).data;
+    expect(after.lessons.length + after.notes.length).toBe(0);
   });
 });
 

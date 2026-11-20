@@ -1,5 +1,5 @@
 import { dayKey } from "./schedule.js";
-import type { Conflict, Fact, Idea, Level, MoqiEvent, Offer, Surface, Verdict, Watch } from "./types.js";
+import type { Conflict, Fact, Idea, Lesson, Level, MoqiEvent, Note, Offer, Surface, Verdict, Watch } from "./types.js";
 
 export const RULES = {
   /** Separate confirmations that make a fact long-term. */
@@ -23,6 +23,17 @@ export interface OfferRecord {
   reason?: string;
   dropped?: boolean;
   verdict?: Verdict;
+}
+
+export interface Study {
+  readonly at: number;
+  readonly mode: "lessons" | "world";
+  readonly trigger: "timer" | "user";
+  readonly topic?: string;
+  readonly learned: number;
+  readonly feedbackSeen: number;
+  readonly error?: string;
+  readonly skipped?: string;
 }
 
 export interface Thought {
@@ -63,6 +74,12 @@ export class State {
   readonly userToolUses: ToolUse[] = [];
   /** The most recent reflections, newest last. */
   readonly thoughts: Thought[] = [];
+  readonly lessons = new Map<string, Lesson>();
+  readonly notes = new Map<string, Note>();
+  /** The most recent study sessions, newest last. */
+  readonly studies: Study[] = [];
+  /** Every answer the user gave to an offer, ignoring included. */
+  feedbackCount = 0;
   userMessages = 0;
   lastUserMessageAt = 0;
   lastEventAt = 0;
@@ -95,6 +112,24 @@ export class State {
         this.thoughts.push({ at: e.at, trigger: e.trigger, ideas: e.ideas, ...(e.error && { error: e.error }) });
         if (this.thoughts.length > 50) this.thoughts.shift();
         break;
+      case "lesson.learned":
+        this.lessons.set(e.lesson.id, e.lesson);
+        break;
+      case "lesson.removed":
+        this.lessons.delete(e.lessonId);
+        break;
+      case "note.added":
+        this.notes.set(e.note.id, e.note);
+        break;
+      case "note.removed":
+        this.notes.delete(e.noteId);
+        break;
+      case "studied": {
+        const { type: _t, id: _i, at, ...rest } = e;
+        this.studies.push({ at, ...rest });
+        if (this.studies.length > 20) this.studies.shift();
+        break;
+      }
       case "offer.dropped": {
         const r = this.offers.get(e.offerId);
         if (r) {
@@ -151,6 +186,7 @@ export class State {
         const r = this.offers.get(e.offerId);
         if (!r || r.verdict) break;
         r.verdict = e.verdict;
+        this.feedbackCount++;
         const k = this.kind(r.offer.kind);
         if (e.verdict === "accepted") {
           k.accepted++;

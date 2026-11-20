@@ -60,6 +60,22 @@ export interface Offer {
 
 export type IdeaType = "serve" | "ask" | "world";
 
+/** Something moqi worked out about how to help this user, from how they reacted before. */
+export interface Lesson {
+  readonly id: string;
+  readonly content: string;
+  readonly at: number;
+}
+
+/** Something moqi learned about the world for this user, with where it read it. */
+export interface Note {
+  readonly id: string;
+  readonly topic: string;
+  readonly content: string;
+  readonly source?: { readonly title: string; readonly url: string };
+  readonly at: number;
+}
+
 /** One thing moqi thought of while reflecting, and what became of it. */
 export interface Idea {
   readonly type: IdeaType;
@@ -121,7 +137,22 @@ export type EventBody =
   | { type: "watch.created"; watch: Watch }
   | { type: "watch.ran"; watchId: string; value: string; headline: string; changed: boolean; nextAt: number }
   | { type: "watch.cancelled"; watchId: string }
-  | { type: "kind.unmuted"; kind: string };
+  | { type: "kind.unmuted"; kind: string }
+  | { type: "lesson.learned"; lesson: Lesson }
+  | { type: "lesson.removed"; lessonId: string }
+  | { type: "note.added"; note: Note }
+  | { type: "note.removed"; noteId: string }
+  | {
+      type: "studied";
+      mode: "lessons" | "world";
+      trigger: "timer" | "user";
+      topic?: string;
+      learned: number;
+      /** How many reactions to offers there had been, so the next review only starts when there are new ones. */
+      feedbackSeen: number;
+      error?: string;
+      skipped?: string;
+    };
 
 export type MoqiEvent = EventBody & { readonly id: string; readonly at: number };
 

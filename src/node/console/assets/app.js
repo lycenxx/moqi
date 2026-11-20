@@ -445,7 +445,8 @@ $("think").addEventListener("click", async () => {
 });
 
 function renderMemory() {
-  const key = JSON.stringify([state.facts, state.watches]);
+  renderStudyStatus();
+  const key = JSON.stringify([state.facts, state.watches, state.lessons, state.notes]);
   if (key === memoryKey) return; // keeps a half-done two-step delete as it is
   memoryKey = key;
   const facts = $("facts");
@@ -471,6 +472,48 @@ function renderMemory() {
       ),
     );
   }
+  const learned = $("learned");
+  learned.replaceChildren();
+  if (state.lessons.length + state.notes.length === 0) {
+    learned.append(
+      h("p", { class: "none", text: "还没学到什么。你不在的时候，它会复盘自己做得怎么样，也会读和你有关的文章。" }),
+    );
+  }
+  for (const l of state.lessons) {
+    learned.append(
+      h(
+        "div",
+        { class: "item" },
+        h(
+          "div",
+          { class: "item-main" },
+          h("p", { class: "item-text" }, h("span", { class: "tag", text: "经验" }), l.content),
+          h("p", { class: "item-meta" }, "从你的反应里总结 · ", timeOf(l.at)),
+        ),
+        removeButton("删除这条经验", "确定删除", () => api("POST", "/api/learned/remove", { id: l.id })),
+      ),
+    );
+  }
+  for (const n of state.notes) {
+    const source =
+      n.source && /^https?:\/\//i.test(n.source.url)
+        ? h("a", { href: n.source.url, target: "_blank", rel: "noopener noreferrer", text: n.source.title })
+        : null;
+    learned.append(
+      h(
+        "div",
+        { class: "item" },
+        h(
+          "div",
+          { class: "item-main" },
+          h("p", { class: "item-text" }, h("span", { class: "tag", text: "笔记" }), n.content),
+          h("p", { class: "item-meta" }, `${n.topic} · `, source ?? "", source ? " · " : "", timeOf(n.at)),
+        ),
+        removeButton("删除这条笔记", "确定删除", () => api("POST", "/api/learned/remove", { id: n.id })),
+      ),
+    );
+  }
+  refreshTimes(learned);
   const watches = $("watches");
   watches.replaceChildren();
   if (state.watches.length === 0)
@@ -491,6 +534,33 @@ function renderMemory() {
     );
   }
 }
+
+function renderStudyStatus() {
+  const s = state.lastStudy;
+  $("study").disabled = state.studying || !state.configured;
+  $("study").textContent = state.studying ? "正在学…" : "现在学一学";
+  let text = "你不在的时候，它一天会学几次：复盘自己做得怎么样，或者读和你有关的文章。";
+  if (!state.configured) text = "接上模型后，你不在的时候它会自己学。";
+  else if (state.studying) text = "moqi 正在学。";
+  else if (s) {
+    const what = s.mode === "lessons" ? "复盘了自己做得怎么样" : `学了「${s.topic || "新闻"}」`;
+    const result = s.error ? `没学成：${s.error}` : s.skipped ? s.skipped : `记下 ${s.learned} 条`;
+    text = `上次${when(s.at)}${s.mode === "world" && !s.topic ? "想学点东西" : what}，${result}。`;
+  }
+  $("study-status").textContent = text;
+}
+
+$("study").addEventListener("click", async () => {
+  $("study").disabled = true;
+  $("study").textContent = "正在学…";
+  try {
+    const r = await api("POST", "/api/study", {});
+    toast(r.learned ? `学到了 ${r.learned} 条` : "这次没学到新东西");
+  } catch (error) {
+    toast(error.message);
+  }
+  refresh();
+});
 
 /** Two steps, so one stray click never deletes anything. */
 function removeButton(label, confirmText, run, iconName = "trash") {
@@ -844,7 +914,7 @@ $("settings").addEventListener("submit", async (e) => {
 
 async function loop() {
   await refresh();
-  const fast = sending !== null || !!state?.question || !!state?.thinking;
+  const fast = sending !== null || !!state?.question || !!state?.thinking || !!state?.studying;
   setTimeout(loop, document.hidden ? 10_000 : fast ? 800 : 3000);
 }
 
