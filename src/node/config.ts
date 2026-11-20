@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { NEWS_FEEDS } from "../plugins/news.js";
 
 const time = z.string().regex(/^([01]?\d|2[0-3]):[0-5]\d$/, "时间要写成 HH:MM");
 
@@ -12,6 +13,7 @@ export const ConfigSchema = z.object({
       model: z.string().min(1),
       apiKey: z.string().optional(),
       noThink: z.boolean().optional(),
+      effort: z.enum(["low", "medium", "high"]).optional(),
     })
     .optional(),
   persona: z.string().optional(),
@@ -20,6 +22,10 @@ export const ConfigSchema = z.object({
   dailyBudget: z.number().int().min(0).max(50).default(3),
   weather: z.object({ latitude: z.number(), longitude: z.number(), place: z.string() }).optional(),
   calendar: z.object({ ics: z.string() }).optional(),
+  news: z
+    .object({ feeds: z.array(z.object({ name: z.string().min(1).max(40), url: z.string().url() })).max(20) })
+    // On unless turned off with an empty list, so an existing config gets news after an upgrade too.
+    .default({ feeds: NEWS_FEEDS.slice(0, 3) }),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 
@@ -30,6 +36,7 @@ export const TEMPLATE = {
   dailyBudget: 3,
   weather: { latitude: 39.9042, longitude: 116.4074, place: "北京" },
   calendar: { ics: "~/calendar.ics" },
+  news: { feeds: NEWS_FEEDS.slice(0, 3) },
 };
 
 export function moqiHome(env: NodeJS.ProcessEnv = process.env): string {

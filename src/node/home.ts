@@ -6,6 +6,7 @@ import { Moqi, type MoqiOptions } from "../core/moqi.js";
 import type { Plugin } from "../core/plugin.js";
 import type { EventStore, Offer, Surface } from "../core/types.js";
 import { calendarPlugin } from "../plugins/calendar.js";
+import { newsPlugin } from "../plugins/news.js";
 import { weatherPlugin } from "../plugins/weather.js";
 import { type Config, expandHome, loadConfig } from "./config.js";
 import { acquireLock, fileEventStore } from "./file-store.js";
@@ -44,6 +45,8 @@ export function pluginsFrom(config: Config, fetchImpl?: typeof fetch): Plugin[] 
     const path = expandHome(config.calendar.ics);
     plugins.push(calendarPlugin({ load: () => readFileSync(path, "utf8") }));
   }
+  if (config.news && config.news.feeds.length > 0)
+    plugins.push(newsPlugin({ feeds: config.news.feeds, ...(fetchImpl && { fetch: fetchImpl }) }));
   return plugins;
 }
 

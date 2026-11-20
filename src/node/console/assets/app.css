@@ -690,7 +690,7 @@ input.short {
 
 .presets {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin: 0 0 16px;
   padding: 0;
@@ -928,5 +928,96 @@ input.short {
     animation: none !important;
     /* biome-ignore lint/complexity/noImportantStyles: the user asked for no motion */
     transition: none !important;
+  }
+}
+
+/* Questions, links and what moqi is thinking */
+
+.card .answer {
+  display: block;
+  width: 100%;
+  min-height: 64px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  resize: vertical;
+  transition: border-color 150ms ease;
+}
+
+.card .answer:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.card.question {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.links {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 15px;
+}
+
+.links li + li {
+  margin-top: 4px;
+}
+
+.links a {
+  color: var(--accent);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.links a:hover {
+  text-decoration: underline;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 40px;
+}
+
+.section-head .subtitle {
+  margin: 0;
+}
+
+.think-status {
+  margin: 4px 0 12px;
+}
+
+.thought {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.thought:last-child {
+  border-bottom: 0;
+}
+
+.thought .item-text .tag {
+  vertical-align: 1px;
+}
+
+.feeds {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0 16px;
+  margin-bottom: 8px;
+}
+
+.hint.first {
+  margin: 0 0 8px;
+}
+
+@media (max-width: 560px) {
+  .feeds {
+    grid-template-columns: repeat(2, 1fr);
   }
 }

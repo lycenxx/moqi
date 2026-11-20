@@ -52,7 +52,7 @@ describe("moqi command", () => {
     try {
       const started = run(home, []);
       expect(started.status, started.stderr).toBe(0);
-      expect(started.stdout).toContain("控制台：http://127.0.0.1:");
+      expect(started.stdout).toContain("控制台：http://moqi.localhost:");
     } finally {
       run(home, ["stop"]);
     }
@@ -64,7 +64,8 @@ describe("moqi command", () => {
     try {
       const started = run(home, []);
       expect(started.status, started.stderr).toBe(0);
-      expect(started.stdout).toMatch(/控制台：http:\/\/127\.0\.0\.1:\d+\/#t=[\w-]{32}/);
+      expect(started.stdout).toMatch(/控制台：http:\/\/moqi\.localhost:\d+\n/);
+      expect(started.stdout).toMatch(/http:\/\/moqi\.localhost:\d+\/#t=[\w-]{32}/);
       const pid = lockHolder(home);
       expect(pid).toBeGreaterThan(0);
       const info = readConsoleInfo(home);

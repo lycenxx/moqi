@@ -1,14 +1,36 @@
 // The moqi console. No framework and no outside requests: everything goes to the moqi on this machine.
 
-const token = new URLSearchParams(location.hash.slice(1)).get("t") || "";
+// The key comes once in the link moqi opens; this browser remembers it, so later the short address is enough.
+const fromLink = new URLSearchParams(location.hash.slice(1)).get("t");
+if (fromLink) {
+  localStorage.setItem("moqi.key", fromLink);
+  history.replaceState(null, "", location.pathname);
+}
+const token = fromLink || localStorage.getItem("moqi.key") || "";
 const $ = (id) => document.getElementById(id);
 
+const OLLAMA = "http://127.0.0.1:11434/v1";
 const PRESETS = {
-  ollama: { baseURL: "http://127.0.0.1:11434/v1", model: "qwen3:4b", noThink: true, key: false },
-  deepseek: { baseURL: "https://api.deepseek.com/v1", model: "deepseek-chat", noThink: false, key: true },
-  qwen: { baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus", noThink: false, key: true },
-  custom: { baseURL: "", model: "", noThink: false, key: true },
+  ollama: {
+    baseURL: OLLAMA,
+    model: "qwen3:4b",
+    noThink: true,
+    local: true,
+    hint: "先在终端运行 ollama pull qwen3:4b（约 2.5 GB）",
+  },
+  glimmer: {
+    baseURL: OLLAMA,
+    model: "muse-glimmer",
+    noThink: false,
+    effort: "low",
+    local: true,
+    hint: "Meta 的本地 Muse 模型，想得比小模型好得多。约 18 GB，建议 24 GB 以上内存；先在终端运行 ollama pull muse-glimmer",
+  },
+  deepseek: { baseURL: "https://api.deepseek.com/v1", model: "deepseek-chat", noThink: false },
+  qwen: { baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus", noThink: false },
+  custom: { baseURL: "", model: "", noThink: false },
 };
+const IDEA_LABEL = { serve: "帮你做", ask: "了解你", world: "看世界" };
 
 const ICONS = {
   trash: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6",
@@ -24,6 +46,8 @@ let weather = null; // { latitude, longitude, place }
 let hasKey = false;
 let keyFor = ""; // the endpoint the saved key belongs to
 let toldAbout = ""; // the question id the user was already told about
+let effort; // reasoning strength for background work, set by the preset or the saved config
+let newsPresets = [];
 
 /* Small helpers */
 
@@ -55,7 +79,8 @@ async function api(method, path, body) {
   if (body !== undefined) headers["content-type"] = "application/json";
   const res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `出错了（HTTP ${res.status}）`);
+  if (res.status === 401) localStorage.removeItem("moqi.key");
+  if (!res.ok) throw Object.assign(new Error(data.error || `出错了（HTTP ${res.status}）`), { status: res.status });
   return data;
 }
 
@@ -136,7 +161,11 @@ async function refresh() {
     banner("");
     render();
   } catch (error) {
-    banner(`连不上 moqi：${error.message}。它可能已经停了，在终端运行 moqi 重新打开。`);
+    banner(
+      error.status === 401
+        ? "钥匙不对。请在终端运行 moqi，用它打开的链接进来一次。"
+        : `连不上 moqi：${error.message}。它可能已经停了，在终端运行 moqi 重新打开。`,
+    );
   }
 }
 
@@ -226,52 +255,158 @@ function renderFeed() {
   list.replaceChildren();
   if (state.offers.length === 0) {
     list.append(h("p", { class: "none", text: "现在没有需要你的事。moqi 有话想说时，会先放在这里。" }));
-    return;
   }
-  for (const o of state.offers) {
-    const respond = (verdict) => async (e) => {
+  for (const o of state.offers) list.append(offerCard(o));
+  renderThoughts();
+}
+
+function offerCard(o) {
+  const respond = (verdict) => async (e) => {
+    e.currentTarget.disabled = true;
+    try {
+      const r = await api("POST", "/api/offer", { id: o.id, verdict });
+      toast(r.message);
+    } catch (error) {
+      toast(error.message);
+    }
+    refresh();
+  };
+  const links = o.links.filter((l) => /^https?:\/\//i.test(l.url));
+  const head = h(
+    "div",
+    { class: "card-head" },
+    h("h3", { class: "card-title", text: o.title }),
+    h("span", { class: "card-time", text: when(o.at) }),
+  );
+  const body = o.body ? h("p", { class: "card-body", text: o.body }) : null;
+  const linkList = links.length
+    ? h(
+        "ul",
+        { class: "links" },
+        links.map((l) =>
+          h("li", {}, h("a", { href: l.url, target: "_blank", rel: "noopener noreferrer", text: l.title })),
+        ),
+      )
+    : null;
+  if (o.answer) {
+    const box = h("textarea", {
+      class: "answer",
+      rows: "2",
+      placeholder: "随便说说，几个字也行",
+      "aria-label": "回答这个问题",
+    });
+    const send = async (e) => {
+      const text = box.value.trim();
+      if (!text) return box.focus();
       e.currentTarget.disabled = true;
       try {
-        const r = await api("POST", "/api/offer", { id: o.id, verdict });
+        const r = await api("POST", "/api/answer", { id: o.id, text });
         toast(r.message);
       } catch (error) {
         toast(error.message);
       }
       refresh();
     };
-    list.append(
+    return h(
+      "article",
+      { class: "card question" },
+      head,
+      body,
+      box,
       h(
-        "article",
-        { class: "card" },
-        h(
-          "div",
-          { class: "card-head" },
-          h("h3", { class: "card-title", text: o.title }),
-          h("span", { class: "card-time", text: when(o.at) }),
-        ),
-        o.body ? h("p", { class: "card-body", text: o.body }) : null,
-        h(
-          "div",
-          { class: "actions" },
-          h("button", {
-            type: "button",
-            class: "btn primary",
-            text: o.action ? "好" : "有用",
-            onclick: respond("accepted"),
-          }),
-          h("button", {
-            type: "button",
-            class: "btn",
-            text: o.action ? "不用" : "不需要",
-            onclick: respond("dismissed"),
-          }),
-          h("span", { class: "spacer" }),
-          h("button", { type: "button", class: "btn ghost", text: "不再提这类", onclick: respond("muted") }),
-        ),
+        "div",
+        { class: "actions" },
+        h("button", { type: "button", class: "btn primary", text: "回答", onclick: send }),
+        h("button", { type: "button", class: "btn", text: "不想说", onclick: respond("dismissed") }),
+        h("span", { class: "spacer" }),
+        h("button", { type: "button", class: "btn ghost", text: "别再问这类", onclick: respond("muted") }),
       ),
     );
   }
+  return h(
+    "article",
+    { class: "card" },
+    head,
+    body,
+    linkList,
+    h(
+      "div",
+      { class: "actions" },
+      h("button", {
+        type: "button",
+        class: "btn primary",
+        text: o.action ? "好" : "有用",
+        onclick: respond("accepted"),
+      }),
+      h("button", { type: "button", class: "btn", text: o.action ? "不用" : "不需要", onclick: respond("dismissed") }),
+      h("span", { class: "spacer" }),
+      h("button", { type: "button", class: "btn ghost", text: "不再提这类", onclick: respond("muted") }),
+    ),
+  );
 }
+
+function renderThoughts() {
+  const status = $("think-status");
+  const last = state.thoughts[0];
+  $("think").disabled = state.thinking || !state.configured;
+  $("think").textContent = state.thinking ? "正在想…" : "现在想一想";
+  if (!state.configured) status.textContent = "接上模型后，moqi 每两小时、以及每次聊完都会自己想一想。";
+  else if (state.thinking) status.textContent = "moqi 正在想你可能需要什么。";
+  else if (last) status.textContent = `上次是${when(last.at)}。每两小时、以及每次聊完，它都会自己想一想。`;
+  else status.textContent = "还没想过。每两小时、以及每次聊完，它都会自己想一想。";
+  const list = $("thoughts");
+  list.replaceChildren();
+  for (const t of state.thoughts) {
+    if (t.error) {
+      list.append(
+        h(
+          "div",
+          { class: "thought" },
+          h("p", { class: "item-text", text: "这次没想成" }),
+          h("p", { class: "item-meta", text: `${when(t.at)} · ${t.error}` }),
+        ),
+      );
+      continue;
+    }
+    if (t.ideas.length === 0) {
+      list.append(
+        h(
+          "div",
+          { class: "thought" },
+          h("p", { class: "item-text", text: "想了想，这次没什么要说的" }),
+          h("p", { class: "item-meta", text: when(t.at) }),
+        ),
+      );
+    }
+    for (const idea of t.ideas) {
+      list.append(
+        h(
+          "div",
+          { class: "thought" },
+          h(
+            "p",
+            { class: "item-text" },
+            h("span", { class: "tag", text: IDEA_LABEL[idea.type] || idea.type }),
+            idea.title,
+          ),
+          h("p", { class: "item-meta", text: `${when(t.at)} · ${idea.outcome}` }),
+        ),
+      );
+    }
+  }
+}
+
+$("think").addEventListener("click", async () => {
+  $("think").disabled = true;
+  $("think").textContent = "正在想…";
+  try {
+    const r = await api("POST", "/api/reflect", {});
+    toast(r.ideas ? `想到了 ${r.ideas} 件事` : "想了想，这次没什么要说的");
+  } catch (error) {
+    toast(error.message);
+  }
+  refresh();
+});
 
 function renderMemory() {
   const facts = $("facts");
@@ -388,16 +523,20 @@ function choosePreset(name) {
     $("m-model").value = p.model;
   }
   $("m-nothink").checked = p.noThink;
+  if (name !== "custom") effort = p.effort;
+  $("m-preset-hint").textContent = p.hint || "";
+  $("m-preset-hint").hidden = !p.hint;
   keyHint(name);
 }
 
-function presetOf(baseURL) {
-  for (const [name, p] of Object.entries(PRESETS)) if (p.baseURL && p.baseURL === baseURL) return name;
+function presetOf(model) {
+  if (model.baseURL === OLLAMA) return model.model.startsWith("muse-glimmer") ? "glimmer" : "ollama";
+  for (const [name, p] of Object.entries(PRESETS)) if (p.baseURL && p.baseURL === model.baseURL) return name;
   return "custom";
 }
 
 function keyHint(name) {
-  const local = name === "ollama";
+  const local = !!PRESETS[name]?.local;
   const kept = hasKey && $("m-base").value.trim().replace(/\/+$/, "") === keyFor;
   $("m-key").placeholder = kept ? "已保存，留空就不改" : local ? "不用填" : "sk-…";
   $("m-key-hint").textContent = local ? "本机模型不用填" : "只存在这台电脑上，不会显示在页面里";
@@ -417,6 +556,7 @@ function toggle(id, bodyId) {
 }
 $("w-on").addEventListener("change", () => toggle("w-on", "w-body"));
 $("c-on").addEventListener("change", () => toggle("c-on", "c-body"));
+$("n-on").addEventListener("change", () => toggle("n-on", "n-body"));
 $("b-on").addEventListener("change", () => {
   $("b-at").disabled = !$("b-on").checked;
 });
@@ -429,17 +569,19 @@ function showWeather() {
 
 async function loadSettings() {
   try {
-    const { config, hasKey: saved, env } = await api("GET", "/api/config");
+    const { config, hasKey: saved, env, newsPresets: feeds } = await api("GET", "/api/config");
+    newsPresets = feeds;
     settingsLoaded = true;
     hasKey = saved;
     keyFor = config.model ? config.model.baseURL.replace(/\/+$/, "") : "";
     const model = config.model;
-    const preset = model ? presetOf(model.baseURL) : "ollama";
+    const preset = model ? presetOf(model) : "ollama";
     choosePreset(preset);
     if (model) {
       $("m-base").value = model.baseURL;
       $("m-model").value = model.model;
       $("m-nothink").checked = !!model.noThink;
+      effort = model.effort;
     }
     keyHint(preset);
     const notes = [];
@@ -462,6 +604,7 @@ async function loadSettings() {
     $("q-from").value = config.quiet.from;
     $("q-to").value = config.quiet.to;
     $("budget").value = String(config.dailyBudget);
+    showNews(config.news ? config.news.feeds : null);
   } catch (error) {
     toast(error.message);
   }
@@ -489,7 +632,39 @@ function modelInput() {
     model: $("m-model").value.trim(),
     apiKey: $("m-key").value.trim() || undefined,
     noThink: $("m-nothink").checked || undefined,
+    effort: effort || undefined,
   };
+}
+
+function showNews(feeds) {
+  const on = feeds !== null && feeds.length > 0;
+  const chosen = new Set((feeds || []).map((f) => f.url));
+  const box = $("n-presets");
+  box.replaceChildren();
+  for (const f of newsPresets) {
+    const check = h("input", { type: "checkbox", value: f.url });
+    check.checked = on ? chosen.has(f.url) : newsPresets.indexOf(f) < 3;
+    box.append(h("label", { class: "check" }, check, f.name));
+  }
+  const known = new Set(newsPresets.map((f) => f.url));
+  $("n-extra").value = (feeds || [])
+    .filter((f) => !known.has(f.url))
+    .map((f) => f.url)
+    .join("\n");
+  $("n-on").checked = on;
+  toggle("n-on", "n-body");
+}
+
+function newsInput() {
+  const picked = [...$("n-presets").querySelectorAll("input:checked")].map((c) =>
+    newsPresets.find((f) => f.url === c.value),
+  );
+  const extra = $("n-extra")
+    .value.split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((url) => ({ name: new URL(url).hostname.replace(/^www\./, ""), url }));
+  return [...picked, ...extra];
 }
 
 async function searchCity() {
@@ -542,6 +717,13 @@ $("settings").addEventListener("submit", async (e) => {
   if ((m.baseURL && !m.model) || (!m.baseURL && m.model)) return setResult(out, "接口地址和模型名要一起填", "bad");
   if ($("w-on").checked && !weather) return setResult(out, "天气开着，但还没选城市", "bad");
   if ($("c-on").checked && !$("c-path").value.trim()) return setResult(out, "日历开着，但还没填文件路径", "bad");
+  let feeds = [];
+  try {
+    feeds = $("n-on").checked ? newsInput() : [];
+  } catch {
+    return setResult(out, "有一个 RSS 地址不对，要以 https:// 开头", "bad");
+  }
+  if ($("n-on").checked && feeds.length === 0) return setResult(out, "新闻开着，但一个来源都没选", "bad");
   const config = {
     model: m.baseURL ? m : null,
     persona: $("persona").value.trim() || undefined,
@@ -550,6 +732,7 @@ $("settings").addEventListener("submit", async (e) => {
     dailyBudget: Number($("budget").value),
     weather: $("w-on").checked ? weather : undefined,
     calendar: $("c-on").checked ? { ics: $("c-path").value.trim() } : undefined,
+    news: { feeds }, // an empty list turns news off; leaving it out would mean the default feeds
   };
   $("save").disabled = true;
   setResult(out, "正在保存…");
@@ -570,12 +753,12 @@ $("settings").addEventListener("submit", async (e) => {
 
 async function loop() {
   await refresh();
-  const fast = sending !== null || !!state?.question;
+  const fast = sending !== null || !!state?.question || !!state?.thinking;
   setTimeout(loop, document.hidden ? 10_000 : fast ? 800 : 3000);
 }
 
 if (!token) {
-  banner("这个链接少了钥匙。请在终端运行 moqi，用它打开的链接进入。");
+  banner("这个浏览器还没有 moqi 的钥匙。请在终端运行 moqi，用它打开的链接进来一次，之后直接输入地址就行。");
 } else {
   refresh().then(() => {
     if (state && !state.configured && view === "chat") view = "settings";

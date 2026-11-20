@@ -49,6 +49,12 @@
         <h1 class="title">动态</h1>
         <p class="lead">moqi 主动想告诉你的事。你的每次选择，都会让它更清楚什么时候该开口。</p>
         <div class="list" id="offers"></div>
+        <div class="section-head">
+          <h2 class="subtitle">moqi 在想</h2>
+          <button type="button" class="btn" id="think">现在想一想</button>
+        </div>
+        <p class="hint think-status" id="think-status"></p>
+        <div class="list" id="thoughts"></div>
       </section>
 
       <section class="view" id="view-memory" role="tabpanel" aria-labelledby="tab-memory" hidden>
@@ -69,11 +75,13 @@
             <p class="note" id="env-note" hidden></p>
             <fieldset class="presets">
               <legend class="sr-only">模型来源</legend>
-              <label><input type="radio" name="preset" value="ollama" /><span>本机 Ollama</span></label>
+              <label><input type="radio" name="preset" value="ollama" /><span>本机 Qwen3</span></label>
+              <label><input type="radio" name="preset" value="glimmer" /><span>本机 Muse Glimmer</span></label>
               <label><input type="radio" name="preset" value="deepseek" /><span>DeepSeek</span></label>
               <label><input type="radio" name="preset" value="qwen" /><span>通义千问</span></label>
               <label><input type="radio" name="preset" value="custom" /><span>自定义</span></label>
             </fieldset>
+            <p class="note" id="m-preset-hint" hidden></p>
             <div class="field">
               <label for="m-base">接口地址</label>
               <input id="m-base" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://…/v1" />
@@ -134,6 +142,21 @@
                   <button type="button" class="btn" id="c-check">检查</button>
                 </div>
                 <p class="hint" id="c-result">在 macOS「日历」里用「文件 → 导出」得到这个文件</p>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="group">
+            <legend class="legend-row">
+              <span>新闻</span>
+              <label class="switch"><input type="checkbox" id="n-on" /><span class="sr-only">开启新闻</span></label>
+            </legend>
+            <div id="n-body">
+              <p class="hint first">moqi 会从这些来源里挑和你有关的告诉你，也能在对话里替你查。</p>
+              <div class="feeds" id="n-presets"></div>
+              <div class="field">
+                <label for="n-extra">其他 RSS 地址，一行一个</label>
+                <textarea id="n-extra" rows="2" spellcheck="false" placeholder="https://…/feed"></textarea>
               </div>
             </div>
           </fieldset>

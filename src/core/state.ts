@@ -1,5 +1,5 @@
 import { dayKey } from "./schedule.js";
-import type { Conflict, Fact, Level, MoqiEvent, Offer, Surface, Verdict, Watch } from "./types.js";
+import type { Conflict, Fact, Idea, Level, MoqiEvent, Offer, Surface, Verdict, Watch } from "./types.js";
 
 export const RULES = {
   /** Separate confirmations that make a fact long-term. */
@@ -19,7 +19,17 @@ export const RULES = {
 export interface OfferRecord {
   readonly offer: Offer;
   surface?: Surface;
+  /** Why it went where it went (or was dropped), in words for the user. */
+  reason?: string;
+  dropped?: boolean;
   verdict?: Verdict;
+}
+
+export interface Thought {
+  readonly at: number;
+  readonly trigger: "timer" | "chat" | "user";
+  readonly ideas: readonly Idea[];
+  readonly error?: string;
 }
 
 export interface KindStats {
@@ -51,7 +61,10 @@ export class State {
   readonly watches = new Map<string, Watch>();
   readonly notifiedPerDay = new Map<string, number>();
   readonly userToolUses: ToolUse[] = [];
+  /** The most recent reflections, newest last. */
+  readonly thoughts: Thought[] = [];
   userMessages = 0;
+  lastUserMessageAt = 0;
   lastEventAt = 0;
 
   static from(events: readonly MoqiEvent[]): State {
@@ -73,8 +86,23 @@ export class State {
     this.lastEventAt = e.at;
     switch (e.type) {
       case "message":
-        if (e.role === "user") this.userMessages++;
+        if (e.role === "user") {
+          this.userMessages++;
+          this.lastUserMessageAt = e.at;
+        }
         break;
+      case "thought":
+        this.thoughts.push({ at: e.at, trigger: e.trigger, ideas: e.ideas, ...(e.error && { error: e.error }) });
+        if (this.thoughts.length > 50) this.thoughts.shift();
+        break;
+      case "offer.dropped": {
+        const r = this.offers.get(e.offerId);
+        if (r) {
+          r.dropped = true;
+          r.reason = e.reason;
+        }
+        break;
+      }
       case "fact.added":
         this.facts.set(e.fact.id, e.fact);
         break;
@@ -112,6 +140,7 @@ export class State {
         const r = this.offers.get(e.offerId);
         if (!r) break;
         r.surface = e.surface;
+        if (e.reason) r.reason = e.reason;
         if (e.surface === "notify") {
           const day = dayKey(e.at);
           this.notifiedPerDay.set(day, (this.notifiedPerDay.get(day) ?? 0) + 1);
@@ -183,5 +212,13 @@ export class State {
 
   notifiedOn(at: number): number {
     return this.notifiedPerDay.get(dayKey(at)) ?? 0;
+  }
+
+  /** Offers of one kind created on the local day of `at`, e.g. how many questions moqi asked today. */
+  offeredOn(kind: string, at: number): number {
+    const day = dayKey(at);
+    let n = 0;
+    for (const { offer } of this.offers.values()) if (offer.kind === kind && dayKey(offer.createdAt) === day) n++;
+    return n;
   }
 }

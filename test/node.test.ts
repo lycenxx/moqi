@@ -103,7 +103,7 @@ describe("config", () => {
       config: loadConfig(dir, {}),
       lock: false,
     });
-    expect(home.moqi.plugins).toHaveLength(0);
+    expect(home.moqi.plugins.map((p) => p.name)).toEqual(["news"]); // news is on unless turned off
     home.close();
     const withPlugins = openHome({
       home: dir,
@@ -114,7 +114,7 @@ describe("config", () => {
       },
       lock: false,
     });
-    expect(withPlugins.moqi.plugins.map((p) => p.name)).toEqual(["weather", "calendar"]);
+    expect(withPlugins.moqi.plugins.map((p) => p.name)).toEqual(["weather", "calendar", "news"]);
     expect(withPlugins.moqi.tool("weather")).toBeDefined();
   });
 });

@@ -14,8 +14,16 @@ export function newToken(): string {
   return randomBytes(24).toString("base64url");
 }
 
+/** Browsers send *.localhost to this machine (RFC 6761), so the address is easy to remember and type. */
+export const CONSOLE_HOST = "moqi.localhost";
+
+/** The address to remember. Opening it once through `consoleUrl` lets that browser remember the key. */
+export function consoleAddress(port: number): string {
+  return `http://${CONSOLE_HOST}:${port}`;
+}
+
 export function consoleUrl(port: number, token: string): string {
-  return `http://127.0.0.1:${port}/#t=${token}`;
+  return `${consoleAddress(port)}/#t=${token}`;
 }
 
 export function readConsoleInfo(home: string): Partial<ConsoleInfo> {

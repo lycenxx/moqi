@@ -6,7 +6,7 @@
 
 [中文文档](./README.zh-CN.md) · [Design (Chinese)](./docs/design.md) · Built on [taugraph](https://github.com/wangcao-hub/taugraph)
 
-Most assistants wait to be asked. moqi works the other way round: ask the same thing three mornings in a row and on the fourth it tells you unasked; if it will rain tomorrow it reminds you the evening before; thirty minutes before a meeting it says so. It also knows when to stay quiet: no interruptions at night, at most three a day, and less of whatever you keep dismissing.
+Most assistants wait to be asked. moqi works the other way round. Every couple of hours, and soon after you talk to it, it thinks about you on its own: what it could do for you, what it should ask to understand you better, which news matters to you. Ask the same thing three mornings in a row and on the fourth it tells you unasked; if it will rain tomorrow it reminds you the evening before. It also knows when to stay quiet: no interruptions at night, at most three a day, and less of whatever you keep dismissing.
 
 The core is plain TypeScript with no Node-only APIs, so the same code runs on a computer and inside a phone app.
 
@@ -20,6 +20,7 @@ flowchart LR
     talk[Conversation]
     cal[Calendar]
     wx[Weather]
+    rss[News]
   end
   log[("events.jsonl<br/>append-only")]
   subgraph understand [Understand]
@@ -28,9 +29,11 @@ flowchart LR
     trust[Trust per action]
   end
   watches[Watches<br/>taugraph flows]
+  think[Reflection<br/>every 2 h and after a chat]
   offer{{Offer}}
   gate{Worth an<br/>interruption?}
   notice --> log --> understand
+  understand --> think --> offer
   understand --> offer
   watches --> offer
   routines -.->|accepted| watches
@@ -63,15 +66,16 @@ flowchart LR
 
 ## Design choices
 
-| Choice                                                                                                                                                                                           | Why                                                                                                                                                                |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Speaking up has a cost.** Every proactive message is an offer with a value. It interrupts you only if it beats its kind's learned threshold, is outside quiet hours and fits the daily budget. | Proactive without being noisy. What you keep dismissing gets rarer, what you accept gets through more easily.                                                      |
-| **Trust is earned per kind of action.** Each kind climbs `inform → suggest → auto-undo → auto`. Three approvals in a row and moqi asks to move up; one refusal drops it back to `suggest`.       | There is no global "autonomous mode". Checking the weather can run on its own while anything that changes the world still asks. Forgetting is capped at `suggest`. |
-| **Memories carry evidence.** A fact becomes long-term after three confirmations and fades after 30 days without one. A contradiction becomes a question for you.                                 | The model never silently overwrites what it knows about you.                                                                                                       |
-| **Repetition becomes automation.** Use the same tool with the same arguments on 3 of the last 14 days, each time within an hour of the usual time, and moqi offers to do it for you.             | You don't set up automations; moqi notices the habit and asks once.                                                                                                |
-| **Watches are deterministic flows.** A watch runs as a [taugraph](https://github.com/wangcao-hub/taugraph) graph: check (read), compare (code), alert (the only write step). No model call.      | Watches are cheap and predictable, and replaying a run never alerts you twice.                                                                                     |
-| **Learning stays off the answer path.** Facts are extracted by a separate background request every three turns.                                                                                  | Replies never wait for memory, and a small local model doesn't have to answer and extract in one go.                                                               |
-| **One log is the whole state.**                                                                                                                                                                  | Backing up is copying one file, debugging is reading it, and syncing devices later means syncing this log.                                                         |
+| Choice                                                                                                                                                                                                                                                                                                                       | Why                                                                                                                                                                                                                                         |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **It thinks on its own.** Every two hours while you are awake, and ten minutes after a conversation settles, moqi asks the model for up to three ideas: something to do for you (with the action ready, one tap sets it up), a question to know you better (two a day at most), or news from your feeds that matters to you. | Being proactive means thinking when nobody asks. Ideas go through the same gate as everything else, only ones that matter today may interrupt, none repeats within a week, and the console shows every idea and why it was or was not sent. |
+| **Speaking up has a cost.** Every proactive message is an offer with a value. It interrupts you only if it beats its kind's learned threshold, is outside quiet hours and fits the daily budget.                                                                                                                             | Proactive without being noisy. What you keep dismissing gets rarer, what you accept gets through more easily.                                                                                                                               |
+| **Trust is earned per kind of action.** Each kind climbs `inform → suggest → auto-undo → auto`. Three approvals in a row and moqi asks to move up; one refusal drops it back to `suggest`.                                                                                                                                   | There is no global "autonomous mode". Checking the weather can run on its own while anything that changes the world still asks. Forgetting is capped at `suggest`.                                                                          |
+| **Memories carry evidence.** A fact becomes long-term after three confirmations and fades after 30 days without one. A contradiction becomes a question for you.                                                                                                                                                             | The model never silently overwrites what it knows about you.                                                                                                                                                                                |
+| **Repetition becomes automation.** Use the same tool with the same arguments on 3 of the last 14 days, each time within an hour of the usual time, and moqi offers to do it for you.                                                                                                                                         | You don't set up automations; moqi notices the habit and asks once.                                                                                                                                                                         |
+| **Watches are deterministic flows.** A watch runs as a [taugraph](https://github.com/wangcao-hub/taugraph) graph: check (read), compare (code), alert (the only write step). No model call.                                                                                                                                  | Watches are cheap and predictable, and replaying a run never alerts you twice.                                                                                                                                                              |
+| **Learning stays off the answer path.** Facts are extracted by a separate background request every three turns.                                                                                                                                                                                                              | Replies never wait for memory, and a small local model doesn't have to answer and extract in one go.                                                                                                                                        |
+| **One log is the whole state.**                                                                                                                                                                                                                                                                                              | Backing up is copying one file, debugging is reading it, and syncing devices later means syncing this log.                                                                                                                                  |
 
 ## Quick start
 
@@ -84,9 +88,11 @@ moqi             # starts moqi in the background and opens its console in your b
 
 ![The moqi console](./docs/console.png)
 
-The console has four tabs: **Chat**, **Feed** (what moqi wants to tell you; accept, dismiss or mute each kind), **Memory** (what it remembers about you and what it watches for you; delete anything wrong) and **Settings**. The first time, it opens on Settings: pick a model, press "test connection", search for your city, save. Changes apply at once, without a restart. The console's own text is in Chinese for now.
+The console lives at **http://moqi.localhost:6674** (6674 spells MOQI on a phone keypad). The first time, `moqi` opens it with a key in the link; the browser remembers the key, so afterwards typing the address is enough. If your browser does not resolve `moqi.localhost`, use `http://localhost:6674`.
 
-Any OpenAI-compatible model works. A local Ollama needs no key (`ollama pull qwen3:4b` first); DeepSeek, Qwen and other hosted models need one. If replies get cut off as a conversation grows, give Ollama a larger context window, e.g. `OLLAMA_CONTEXT_LENGTH=16384 ollama serve`.
+It has four tabs: **Chat**, **Feed** (what moqi wants to tell you, its questions with an answer box, and "moqi 在想": every idea it had and what became of it), **Memory** (what it remembers about you and what it watches for you; delete anything wrong) and **Settings**. The first time, it opens on Settings: pick a model, press "test connection", search for your city, pick news feeds, save. Changes apply at once, without a restart. The console's own text is in Chinese for now.
+
+Any OpenAI-compatible model works. A local Ollama needs no key: `qwen3:4b` (2.5 GB) runs anywhere, and [Muse Glimmer](https://ollama.com/library/muse-glimmer), Meta's open-weights model for always-on local agents, thinks far better if you have the room (about 18 GB on disk, 24 GB of memory or more). DeepSeek, Qwen and other hosted models need a key. If replies get cut off as a conversation grows, give Ollama a larger context window, e.g. `OLLAMA_CONTEXT_LENGTH=16384 ollama serve`.
 
 | Command       | What it does                                                                                                         |
 | ------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -111,20 +117,23 @@ The Settings tab writes `~/.moqi/config.json`; you can also edit it by hand (the
   "quiet": { "from": "22:30", "to": "08:00" },
   "dailyBudget": 3,
   "weather": { "latitude": 22.54, "longitude": 113.93, "place": "Shenzhen" },
-  "calendar": { "ics": "~/calendar.ics" }
+  "calendar": { "ics": "~/calendar.ics" },
+  "news": { "feeds": [{ "name": "少数派", "url": "https://sspai.com/feed" }] }
 }
 ```
 
-| Field           | Default        | Meaning                                                                                                                              |
-| --------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `model`         | none           | OpenAI-compatible endpoint: `baseURL`, `model`, optional `apiKey`. Without a model, briefings and watches still work; chat does not. |
-| `model.noThink` | off            | For Qwen3-style models that think first: background requests get the `/no_think` switch.                                             |
-| `persona`       | none           | Who moqi is to you; put at the top of the system prompt.                                                                             |
-| `briefingAt`    | `"08:00"`      | Time of the daily briefing; `null` turns it off.                                                                                     |
-| `quiet`         | 22:30 to 08:00 | Quiet hours: offers wait in the feed unless they are urgent and worth 0.9 or more.                                                   |
-| `dailyBudget`   | `3`            | Most notifications per day.                                                                                                          |
-| `weather`       | off            | Weather plugin (Open-Meteo, no key).                                                                                                 |
-| `calendar`      | off            | Calendar plugin reading a local `.ics` file.                                                                                         |
+| Field           | Default                 | Meaning                                                                                                                                |
+| --------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`         | none                    | OpenAI-compatible endpoint: `baseURL`, `model`, optional `apiKey`. Without a model, briefings and watches still work; chat does not.   |
+| `model.noThink` | off                     | For Qwen3-style models that think first: background requests get the `/no_think` switch.                                               |
+| `persona`       | none                    | Who moqi is to you; put at the top of the system prompt.                                                                               |
+| `briefingAt`    | `"08:00"`               | Time of the daily briefing; `null` turns it off.                                                                                       |
+| `quiet`         | 22:30 to 08:00          | Quiet hours: offers wait in the feed unless they are urgent and worth 0.9 or more.                                                     |
+| `dailyBudget`   | `3`                     | Most notifications per day.                                                                                                            |
+| `weather`       | off                     | Weather plugin (Open-Meteo, no key).                                                                                                   |
+| `calendar`      | off                     | Calendar plugin reading a local `.ics` file.                                                                                           |
+| `news`          | 少数派, IT之家, Solidot | News plugin: RSS or Atom feeds to read headlines from; `{ "feeds": [] }` turns it off. The console also offers 爱范儿 and Hacker News. |
+| `model.effort`  | none                    | `low`, `medium` or `high`: reasoning strength for background work, for models that support it (Muse Glimmer, gpt-oss).                 |
 
 Environment variables: `MOQI_BASE_URL` with `MOQI_MODEL` replaces the model; `MOQI_API_KEY` supplies the key so it stays out of the file.
 
@@ -133,6 +142,7 @@ Environment variables: `MOQI_BASE_URL` with `MOQI_MODEL` replaces the model; `MO
 | When                                                          | What                                                                                              | From                   |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------- |
 | Every morning (`briefingAt`)                                  | A briefing: today's calendar and weather, things kept for you, decisions waiting, today's watches | core                   |
+| Every two hours, and soon after a chat                        | Ideas: something to do for you, a question to know you better, news that matters to you           | core (reflection)      |
 | You ask the same thing at about the same time on several days | Offers to tell you every day without being asked; accepting creates a watch                       | core (routines)        |
 | A watch is due                                                | Checks, compares with last time, tells you if it changed (or every time)                          | core (a taugraph flow) |
 | Two memories contradict                                       | Asks which one is right                                                                           | core                   |
@@ -189,7 +199,7 @@ All state is replayed from `~/.moqi/events.jsonl`, one event per line, append-on
 
 The console listens on `127.0.0.1` only. Its address carries a random key after `#`, so the key never reaches a server log; every API call must present it, requests whose `Host` is not this machine are refused (against DNS rebinding), and the page loads nothing from outside under a strict Content Security Policy. A saved API key is never sent to the page.
 
-Two things leave your computer: requests to the model endpoint you configured (the conversation plus the memories moqi includes in the prompt), and, if the weather plugin is on, your configured coordinates sent to Open-Meteo. With a local model, the weather request is the only one.
+What leaves your computer: requests to the model endpoint you configured (the conversation plus the memories and headlines moqi includes in the prompt), your configured coordinates sent to Open-Meteo if the weather plugin is on, and plain downloads of the news feeds you picked. With a local model, nothing about you leaves at all.
 
 ## Status and limits
 
@@ -198,6 +208,7 @@ moqi runs on a computer: core, console, CLI, weather and calendar plugins, notif
 - The phone app and multi-device sync are next. The core already follows the rules needed to run on a phone, and a test enforces them.
 - Repeating calendar events (RRULE) are not expanded yet.
 - Small local models (4B) sometimes record one-off requests as facts. Check with `/memory`; ask moqi to forget anything wrong.
+- Reflection is only as good as the model. With `qwen3:4b` a reflection takes about a minute and yields one to three ideas, sometimes none; a bigger model, such as [Muse Glimmer](https://ollama.com/library/muse-glimmer) locally or a hosted one, thinks much better.
 - `auto-undo` currently means "do it and tell you"; undoing is the matching cancel action.
 - The terminal chat (`moqi chat`) does not attach to the background moqi yet; use the console while it runs.
 

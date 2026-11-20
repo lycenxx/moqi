@@ -132,4 +132,18 @@ describe("openAICompatible", () => {
     await off.chat({ messages, reasoning: "off" });
     expect(bodies.map((b) => b.messages[1]?.content)).toEqual(["hi /no_think", "hi", "hi"]);
   });
+
+  it("asks models with adjustable reasoning for the lightest effort on background requests only", async () => {
+    const { openAICompatible } = await import("../src/core/model.js");
+    const bodies: Record<string, unknown>[] = [];
+    const fetch = (async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }));
+    }) as typeof globalThis.fetch;
+    const glimmer = openAICompatible({ baseURL: "http://x/v1", model: "muse-glimmer", effort: "low", fetch });
+    const messages = [{ role: "user" as const, content: "hi" }];
+    await glimmer.chat({ messages, reasoning: "off" });
+    await glimmer.chat({ messages });
+    expect(bodies.map((b) => b.reasoning_effort)).toEqual(["low", undefined]);
+  });
 });

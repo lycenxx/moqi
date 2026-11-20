@@ -30,14 +30,16 @@ export {
   type OfferInput,
   type Plugin,
   type PluginContext,
+  type SourceContext,
   type Tool,
   type ToolContext,
   type ToolResult,
   toolSpec,
 } from "./plugin.js";
 export { type Decision, decide, defaultPolicy, inQuietHours, type Policy } from "./proactive.js";
+export { IDEA_KIND, REFLECT, reflect } from "./reflect.js";
 export { findRoutines, ROUTINE, type Routine } from "./routines.js";
 export { dayKey, describeSchedule, minuteOfDay, nextRun, parseTime, validateSchedule } from "./schedule.js";
-export { type KindStats, type OfferRecord, RULES, State, type Trust } from "./state.js";
+export { type KindStats, type OfferRecord, RULES, State, type Thought, type Trust } from "./state.js";
 export * from "./types.js";
 export { runWatch, type WatchDeps, type WatchOutcome, watchGraph } from "./watch.js";

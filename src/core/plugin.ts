@@ -67,6 +67,12 @@ export interface PluginContext {
 
 export type OfferInput = Omit<Offer, "id" | "createdAt">;
 
+/** What a source knows right now, for moqi's own thinking. Ideas point at `links` by key, never by a made-up URL. */
+export interface SourceContext {
+  readonly text: string;
+  readonly links?: Readonly<Record<string, { readonly title: string; readonly url: string }>>;
+}
+
 /** Sources, tools and briefing sections. Everything outside the kernel is a plugin. */
 export interface Plugin {
   readonly name: string;
@@ -76,4 +82,6 @@ export interface Plugin {
   briefing?(ctx: PluginContext): Promise<BriefingSection | undefined> | BriefingSection | undefined;
   /** Runs on every tick; observe the world and propose offers. */
   tick?(ctx: PluginContext): Promise<void> | void;
+  /** What this source knows now, for reflection. Without it, reflection reads the briefing section. */
+  context?(ctx: PluginContext): Promise<SourceContext | undefined> | SourceContext | undefined;
 }

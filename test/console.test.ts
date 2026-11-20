@@ -23,6 +23,11 @@ function fakeNet(model: (body: { messages: { role: string; content: string }[] }
       });
     }
     if (url.endsWith("/chat/completions")) return Response.json({ choices: [{ message: model(body) }] });
+    if (url === "https://feed.test/rss") {
+      return new Response(
+        "<rss><channel><item><title>深圳明天暴雨</title><link>https://feed.test/rain</link></item></channel></rss>",
+      );
+    }
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
   return { fetch: impl, seen };
@@ -75,7 +80,6 @@ describe("console", () => {
     expect(page.headers.get("content-security-policy")).toContain("connect-src 'self'");
     expect(await page.text()).toContain('<script src="/app.js"');
     expect((await fetch(`http://127.0.0.1:${ui.port}/app.js`)).headers.get("content-type")).toContain("javascript");
-    expect(ui.url).toBe(`http://127.0.0.1:${ui.port}/#t=${"t".repeat(32)}`);
 
     expect((await api("GET", "/api/state", undefined, "wrong")).status).toBe(401);
     expect((await api("GET", "/api/state", undefined, "")).status).toBe(401);
@@ -110,6 +114,25 @@ describe("console", () => {
       req.end();
     });
     expect(status).toBe(403);
+    // The easy-to-remember name is this machine too.
+    const named = await new Promise<number>((resolve, reject) => {
+      const req = request(
+        {
+          host: "127.0.0.1",
+          port: ui.port,
+          path: "/api/state",
+          headers: { host: `moqi.localhost:${ui.port}`, "x-moqi-token": "t".repeat(32) },
+        },
+        (res) => {
+          res.resume();
+          resolve(res.statusCode ?? 0);
+        },
+      );
+      req.on("error", reject);
+      req.end();
+    });
+    expect(named).toBe(200);
+    expect(ui.url).toBe(`http://moqi.localhost:${ui.port}/#t=${"t".repeat(32)}`);
   });
 
   it("rejects bodies that are not JSON, so a plain HTML form cannot post to it", async () => {
@@ -285,6 +308,77 @@ describe("console", () => {
       events: 0,
     });
     expect(readFileSync(ics, "utf8")).toContain("周会");
+  });
+});
+
+describe("console: moqi thinking", () => {
+  it("thinks on request, shows what it thought and why, and takes answers to its questions", async () => {
+    const { api } = await start(
+      { model: MODEL, briefingAt: null, news: { feeds: [{ name: "T", url: "https://feed.test/rss" }] } },
+      (body) => {
+        const system = body.messages[0]?.content ?? "";
+        if (system.includes("你自己在想")) {
+          const situation = body.messages[1]?.content ?? "";
+          expect(situation).toContain("[n1] 深圳明天暴雨（T）");
+          return {
+            content: JSON.stringify({
+              ideas: [
+                { type: "ask", title: "你一般几点下班？", body: "好提前提醒路况", value: 0.4 },
+                { type: "world", title: "深圳明天暴雨", body: "记得带伞", value: 0.3, refs: ["n1"] },
+              ],
+            }),
+          };
+        }
+        if (system.includes("从对话里摘出"))
+          return { content: '{"facts":[{"kind":"routine","content":"晚上 7 点下班"}]}' };
+        return { content: "好" };
+      },
+    );
+    const thought = await api("POST", "/api/reflect", {});
+    expect(thought.data).toEqual({ ideas: 2 });
+
+    const state = (await api("GET", "/api/state")).data;
+    expect(state.thinking).toBe(false);
+    const question = state.offers.find((o: { answer: boolean }) => o.answer);
+    expect(question).toMatchObject({ title: "你一般几点下班？", links: [] });
+    const news = state.offers.find((o: { links: unknown[] }) => o.links.length > 0);
+    expect(news.links).toEqual([{ title: "深圳明天暴雨", url: "https://feed.test/rain" }]);
+    expect(state.thoughts[0].trigger).toBe("user");
+    expect(state.thoughts[0].ideas).toEqual([
+      { type: "ask", title: "你一般几点下班？", value: 0.4, outcome: "不急，放进动态" },
+      { type: "world", title: "深圳明天暴雨", value: 0.3, outcome: "不急，放进动态" },
+    ]);
+
+    expect((await api("POST", "/api/answer", { id: question.id, text: "一般 7 点" })).data.message).toBe(
+      "记下了，谢谢",
+    );
+    const after = (await api("GET", "/api/state")).data;
+    expect(after.messages.map((m: { text: string }) => m.text)).toEqual(["你一般几点下班？", "一般 7 点"]);
+    expect(after.thoughts[0].ideas[0].outcome).toBe("不急，放进动态 · 你接受了");
+  });
+
+  it("needs a model to think, and offers the news presets in settings", async () => {
+    const { dir, home, api } = await start({});
+    expect((await api("POST", "/api/reflect", {})).status).toBe(409);
+    const got = (await api("GET", "/api/config")).data;
+    // A config written before news existed gets the default feeds; an empty list turns news off.
+    expect(got.config.news.feeds.map((f: { name: string }) => f.name)).toEqual(["少数派", "IT之家", "Solidot"]);
+    expect(home.moqi.plugins.map((p) => p.name)).toContain("news");
+    expect(
+      (await api("POST", "/api/config", { config: { ...got.config, model: null, news: { feeds: [] } } })).status,
+    ).toBe(200);
+    expect(home.moqi.plugins.map((p) => p.name)).not.toContain("news");
+    expect(readConfigFile(dir).news).toEqual({ feeds: [] });
+    expect(got.newsPresets.map((f: { name: string }) => f.name)).toContain("少数派");
+    const feeds = [got.newsPresets[0], { name: "mine", url: "https://mine.example/feed" }];
+    expect((await api("POST", "/api/config", { config: { ...got.config, model: null, news: { feeds } } })).status).toBe(
+      200,
+    );
+    expect(readConfigFile(dir).news?.feeds).toEqual(feeds);
+    const bad = await api("POST", "/api/config", {
+      config: { ...got.config, model: null, news: { feeds: [{ name: "x", url: "not a url" }] } },
+    });
+    expect(bad.status).toBe(400);
   });
 });
 

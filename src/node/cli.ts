@@ -8,7 +8,7 @@ import { activeFacts } from "../core/memory.js";
 import { describeSchedule } from "../core/schedule.js";
 import type { Offer, Surface, Verdict } from "../core/types.js";
 import { moqiHome, writeTemplate } from "./config.js";
-import { consoleToken, readConsoleInfo, runningConsole, writeConsoleInfo } from "./console/info.js";
+import { consoleAddress, consoleToken, runningConsole, writeConsoleInfo } from "./console/info.js";
 import { confirmQueue, DEFAULT_PORT, startConsole } from "./console/server.js";
 import { lockHolder } from "./file-store.js";
 import { type Home, openHome } from "./home.js";
@@ -186,7 +186,10 @@ async function main(): Promise<void> {
   if (cmd === "brief") return brief();
   if (cmd === "chat") {
     const running = runningConsole(moqiHome());
-    if (running) throw new Error(`moqi 正在后台运行，请在控制台里对话：${running.url}\n想用终端对话，先 moqi stop。`);
+    if (running)
+      throw new Error(
+        `moqi 正在后台运行，请在控制台里对话：${consoleAddress(running.port)}\n想用终端对话，先 moqi stop。`,
+      );
     return interactive();
   }
   console.error(`不认识 ${cmd}\n\n${HELP}`);
@@ -199,11 +202,12 @@ async function daemon(): Promise<void> {
   const asker = confirmQueue();
   const home = openHome({ home: dir, onDeliver: (o, s) => console.log(show(o, s)), confirm: (q) => asker.ask(q) });
   const stopBeat = heartbeat(home, (e) => console.error(`moqi: ${e instanceof Error ? e.message : String(e)}`));
-  const saved = readConsoleInfo(dir).port;
   const token = consoleToken(dir);
-  const ui = await startConsole({ home, asker, token, port: saved ?? DEFAULT_PORT });
+  const ui = await startConsole({ home, asker, token, port: DEFAULT_PORT });
   writeConsoleInfo(dir, { pid: process.pid, port: ui.port, token });
-  console.log(`moqi 在后台留意着（${home.logPath}）。\n控制台：${ui.url}`);
+  console.log(
+    `moqi 在后台留意着（${home.logPath}）。\n控制台：${consoleAddress(ui.port)}\n第一次用这个带钥匙的链接打开：${ui.url}`,
+  );
   let quitting = false;
   const quit = async () => {
     if (quitting) return;
@@ -243,7 +247,8 @@ async function openConsole(): Promise<void> {
     if (!running) throw new Error(`moqi 没能启动，看看 ${log}`);
     console.log(`moqi 在后台运行了（pid ${running.pid}）。停掉它：moqi stop`);
   }
-  console.log(`控制台：${running.url}`);
+  console.log(`控制台：${consoleAddress(running.port)}`);
+  console.log(`第一次请用这个带钥匙的链接打开，之后这个浏览器直接输入上面的地址就行：\n${running.url}`);
   if (!process.env.MOQI_NO_OPEN) openBrowser(running.url);
 }
 

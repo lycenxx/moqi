@@ -1,10 +1,11 @@
-import { chatTurn } from "./agent.js";
+import { chatTurn, learn } from "./agent.js";
 import { needsConfirmation, promotionDue } from "./autonomy.js";
 import { type Briefing, composeBriefing } from "./briefing.js";
 import { type RememberInput, rememberEvents } from "./memory.js";
 import type { ChatModel } from "./model.js";
 import { actionPolicy, type OfferInput, type Plugin, type PluginContext, resultText, type Tool } from "./plugin.js";
-import { decide, defaultPolicy, type Policy } from "./proactive.js";
+import { decide, defaultPolicy, inQuietHours, type Policy } from "./proactive.js";
+import { REFLECT, reflect } from "./reflect.js";
 import { findRoutines } from "./routines.js";
 import { dayKey, describeSchedule, minuteOfDay, nextRun, parseTime } from "./schedule.js";
 import { State } from "./state.js";
@@ -13,6 +14,7 @@ import {
   type Clock,
   type EventBody,
   type EventStore,
+  type Idea,
   type MoqiEvent,
   memoryEventStore,
   newId,
@@ -38,6 +40,8 @@ export interface MoqiOptions {
   readonly deliver?: (offer: Offer, surface: Surface) => void | Promise<void>;
   /** Asks the user before an action that has not earned trust yet. Without it, such actions are refused. */
   readonly confirm?: (question: string) => Promise<boolean>;
+  /** Think about the user on its own between conversations (needs a model). Default true. */
+  readonly reflect?: boolean;
 }
 
 export interface TickReport {
@@ -55,6 +59,7 @@ export class Moqi {
   readonly plugins: readonly Plugin[];
   private readonly tools = new Map<string, Tool>();
   private readonly background = new Set<Promise<unknown>>();
+  private thinking: Promise<Idea[]> | undefined;
   private readonly options: MoqiOptions;
 
   constructor(options: MoqiOptions = {}) {
@@ -117,6 +122,50 @@ export class Moqi {
 
   tool(name: string): Tool | undefined {
     return this.tools.get(name);
+  }
+
+  /** Read tools a watch may use, e.g. for reflection to suggest one. */
+  watchableTools(): Tool[] {
+    return [...this.tools.values()].filter((t) => this.isWatchable(t.name));
+  }
+
+  /** What is wrong with a call, without running it or asking anyone; undefined when it would work. */
+  checkTool(name: string, args: unknown): string | undefined {
+    const tool = this.tools.get(name);
+    if (!tool) return `没有工具 ${name}`;
+    const parsed = tool.input.safeParse(args);
+    if (!parsed.success) return parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ");
+    return tool.validate?.(parsed.data, { now: () => this.clock.now(), state: this.state });
+  }
+
+  get isReflecting(): boolean {
+    return this.thinking !== undefined;
+  }
+
+  /** Thinks about the user now and offers what comes of it. One reflection at a time. */
+  reflect(trigger: "timer" | "chat" | "user" = "user"): Promise<Idea[]> {
+    if (this.thinking) return this.thinking;
+    const run = reflect(this, trigger).finally(() => {
+      this.thinking = undefined;
+    });
+    this.thinking = run;
+    this.track(run);
+    return run;
+  }
+
+  /** The user's answer to a question moqi asked. It goes into the conversation and is learned from at once. */
+  async answer(offerId: string, text: string): Promise<string> {
+    const record = this.state.offers.get(offerId);
+    if (!record) return `没有 ${offerId}`;
+    if (record.offer.answer !== "text") return "这条不是问题";
+    if (record.verdict) return "这条已经处理过了";
+    const reply = text.trim().slice(0, 1000);
+    if (reply === "") return "回答是空的";
+    this.emit({ type: "offer.feedback", offerId, verdict: "accepted" });
+    this.emit({ type: "message", role: "assistant", text: record.offer.title });
+    this.emit({ type: "message", role: "user", text: reply });
+    this.track(learn(this));
+    return "记下了，谢谢";
   }
 
   /** Remembers, confirms, or raises a contradiction for the user to settle. Returns a short note. */
@@ -215,8 +264,10 @@ export class Moqi {
     };
     this.emit({ type: "offer.created", offer });
     const decision = decide(this.state, this.policy, offer, now);
-    if (decision.surface !== "drop") {
-      this.emit({ type: "offer.delivered", offerId: offer.id, surface: decision.surface });
+    if (decision.surface === "drop") {
+      this.emit({ type: "offer.dropped", offerId: offer.id, reason: decision.reason });
+    } else {
+      this.emit({ type: "offer.delivered", offerId: offer.id, surface: decision.surface, reason: decision.reason });
       await this.options.deliver?.(offer, decision.surface);
     }
     return offer;
@@ -243,7 +294,8 @@ export class Moqi {
     this.emit({ type: "kind.unmuted", kind });
   }
 
-  private context(): PluginContext {
+  /** What plugins get: the clock, the state, and a way to observe and to offer. */
+  pluginContext(): PluginContext {
     return {
       now: () => this.clock.now(),
       state: this.state,
@@ -257,7 +309,7 @@ export class Moqi {
   }
 
   async briefing(): Promise<Briefing> {
-    const ctx = this.context();
+    const ctx = this.pluginContext();
     const sections = [];
     for (const plugin of this.plugins) {
       try {
@@ -280,7 +332,7 @@ export class Moqi {
       }
     }
     const watchesRun = await this.runDueWatches(now);
-    const ctx = this.context();
+    const ctx = this.pluginContext();
     for (const plugin of this.plugins) {
       try {
         await plugin.tick?.(ctx);
@@ -290,6 +342,7 @@ export class Moqi {
     }
     await this.maybeBrief(now);
     await this.offerRoutines(now);
+    this.maybeReflect(now);
     const offers = [...this.state.offers.values()].slice(before).map((r) => r.offer);
     return { watchesRun, offers };
   }
@@ -332,6 +385,17 @@ export class Moqi {
       }
     }
     return due.length;
+  }
+
+  /** Every couple of hours while the user is awake, and soon after a conversation settles. In the background. */
+  private maybeReflect(now: number): void {
+    if (!this.model || this.options.reflect === false || this.thinking) return;
+    if (inQuietHours(this.policy, now)) return;
+    const last = this.state.thoughts.at(-1)?.at ?? 0;
+    if (now - last < REFLECT.minGapMs) return;
+    const settled = this.state.lastUserMessageAt > last && now - this.state.lastUserMessageAt >= REFLECT.afterChatMs;
+    if (settled) void this.reflect("chat");
+    else if (now - last >= REFLECT.everyMs) void this.reflect("timer");
   }
 
   private async maybeBrief(now: number): Promise<void> {

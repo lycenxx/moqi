@@ -9,12 +9,20 @@ import { openAICompatible } from "../../core/model.js";
 import { describeSchedule } from "../../core/schedule.js";
 import type { Verdict } from "../../core/types.js";
 import { parseIcs } from "../../plugins/calendar.js";
+import { NEWS_FEEDS } from "../../plugins/news.js";
 import { ConfigSchema, expandHome, loadConfig, readConfigFile, saveConfig } from "../config.js";
 import type { Home } from "../home.js";
-import { consoleUrl } from "./info.js";
+import { CONSOLE_HOST, consoleUrl } from "./info.js";
 
-export const DEFAULT_PORT = 4517;
+/** M-O-Q-I on a phone keypad. */
+export const DEFAULT_PORT = 6674;
 const MAX_BODY = 64 * 1024;
+const VERDICT_WORDS = {
+  accepted: "你接受了",
+  dismissed: "你拒绝了",
+  ignored: "你没理",
+  muted: "你关掉了这类",
+} as const;
 const ANSWER_TIMEOUT_MS = 5 * 60_000;
 
 /** Questions moqi asks before an action it has not earned trust for, answered from the page. */
@@ -131,11 +139,41 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
         .flatMap((e) => (e.type === "message" ? [{ role: e.role, text: e.text, at: e.at }] : []))
         .slice(-60);
       const offers = moqi.state.openOffers(now).flatMap((o) => {
-        const surface = moqi.state.offers.get(o.id)?.surface;
-        return surface
-          ? [{ id: o.id, kind: o.kind, title: o.title, body: o.body, at: o.createdAt, action: !!o.action, surface }]
-          : [];
+        const record = moqi.state.offers.get(o.id);
+        if (!record?.surface) return []; // dropped offers never show
+        return [
+          {
+            id: o.id,
+            kind: o.kind,
+            title: o.title,
+            body: o.body,
+            at: o.createdAt,
+            action: !!o.action,
+            answer: o.answer === "text",
+            links: o.links ?? [],
+            surface: record.surface,
+          },
+        ];
       });
+      const thoughts = moqi.state.thoughts
+        .slice(-8)
+        .reverse()
+        .map((t) => ({
+          at: t.at,
+          trigger: t.trigger,
+          error: t.error ?? null,
+          ideas: t.ideas.map((idea) => {
+            const record = idea.offerId ? moqi.state.offers.get(idea.offerId) : undefined;
+            const verdict = record?.verdict ? VERDICT_WORDS[record.verdict] : "";
+            const outcome = idea.skipped ? `没说：${idea.skipped}` : (record?.reason ?? "");
+            return {
+              type: idea.type,
+              title: idea.title,
+              value: idea.value,
+              outcome: verdict ? `${outcome} · ${verdict}` : outcome,
+            };
+          }),
+        }));
       const facts = [...moqi.state.facts.values()]
         .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
         .map((f) => ({
@@ -156,10 +194,12 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
         configured: !!moqi.model,
         busy: chatting > 0,
         question: asker.pending() ?? null,
+        thinking: moqi.isReflecting,
         messages,
         offers,
         facts,
         watches,
+        thoughts,
       };
     },
 
@@ -176,6 +216,18 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       } finally {
         chatting--;
       }
+    },
+
+    "POST /api/answer": async (body) => {
+      const id = str(body.id, "id");
+      const text = str(body.text, "text");
+      return { message: await home.serial(() => home.moqi.answer(id, text)) };
+    },
+
+    "POST /api/reflect": async () => {
+      if (!home.moqi.model) throw new HttpError(409, "还没配置模型，先去设置里接一个");
+      const ideas = await home.moqi.reflect("user");
+      return { ideas: ideas.length };
     },
 
     "POST /api/confirm": (body) => {
@@ -218,6 +270,7 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       return {
         config: { ...file, model: file.model ? model : null },
         hasKey: !!apiKey,
+        newsPresets: NEWS_FEEDS,
         env: { model: !!(env.MOQI_BASE_URL && env.MOQI_MODEL), apiKey: !!env.MOQI_API_KEY },
       };
     },
@@ -306,7 +359,8 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
     const host = req.headers.host ?? "";
     // Only the names a browser on this machine would use; blocks DNS rebinding from other sites.
-    if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) return send(res, 403, { error: "forbidden" });
+    if (![CONSOLE_HOST, "localhost", "127.0.0.1"].some((name) => host === `${name}:${port}`))
+      return send(res, 403, { error: "forbidden" });
     const url = new URL(req.url ?? "/", `http://${host}`);
     const asset = req.method === "GET" ? assets[url.pathname] : undefined;
     if (asset) {

@@ -35,18 +35,18 @@ export interface Decision {
 /** Where an offer goes: an interruption, the feed (seen in the briefing or when the user looks), or nowhere. */
 export function decide(state: State, policy: Policy, offer: Offer, at: number): Decision {
   const stats = state.kind(offer.kind);
-  if (stats.muted) return { surface: "drop", reason: `the user muted "${offer.kind}"` };
-  if (offer.urgency === "whenever") return { surface: "feed", reason: "not time-sensitive" };
+  // Reasons are shown to the user in the console, so they are plain Chinese.
+  if (stats.muted) return { surface: "drop", reason: "你关掉了这类事" };
+  if (offer.urgency === "whenever") return { surface: "feed", reason: "不急，放进动态" };
   if (offer.value < stats.threshold) {
     return {
       surface: "feed",
-      reason: `value ${offer.value.toFixed(2)} is below the learned threshold ${stats.threshold.toFixed(2)}`,
+      reason: `值 ${offer.value.toFixed(2)}，低于这类的门槛 ${stats.threshold.toFixed(2)}，放进动态`,
     };
   }
   if (inQuietHours(policy, at) && !(offer.urgency === "now" && offer.value >= policy.quietOverride)) {
-    return { surface: "feed", reason: "quiet hours" };
+    return { surface: "feed", reason: "免打扰时段，放进动态" };
   }
-  if (state.notifiedOn(at) >= policy.dailyBudget)
-    return { surface: "feed", reason: "today's interruption budget is used up" };
-  return { surface: "notify", reason: "worth an interruption now" };
+  if (state.notifiedOn(at) >= policy.dailyBudget) return { surface: "feed", reason: "今天的打扰额度用完了，放进动态" };
+  return { surface: "notify", reason: "值得现在告诉你" };
 }

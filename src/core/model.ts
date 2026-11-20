@@ -53,6 +53,11 @@ export interface OpenAICompatibleOptions {
    * user message. Without it, small local models can spend the whole token budget thinking.
    */
   readonly noThink?: boolean;
+  /**
+   * Sent as `reasoning_effort` with `reasoning: "off"` requests, for models with adjustable reasoning
+   * strength (Muse Glimmer, gpt-oss): background work then uses the lightest setting.
+   */
+  readonly effort?: "low" | "medium" | "high";
 }
 
 /** OpenAI-compatible /chat/completions with function calling: OpenAI, DeepSeek, Qwen, Ollama, vLLM, ... */
@@ -81,6 +86,7 @@ export function openAICompatible(options: OpenAICompatibleOptions): ChatModel {
           ...(request.temperature !== undefined && { temperature: request.temperature }),
           ...(request.maxTokens !== undefined && { max_tokens: request.maxTokens }),
           ...(request.json && { response_format: { type: "json_object" } }),
+          ...(request.reasoning === "off" && options.effort && { reasoning_effort: options.effort }),
         }),
       });
       if (!response.ok)

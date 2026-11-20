@@ -52,6 +52,22 @@ export interface Offer {
   readonly expiresAt?: number;
   /** What accepting it does. Absent: it is information only. */
   readonly action?: { readonly tool: string; readonly args: Record<string, unknown> };
+  /** "text": a question; the user answers it in words, and the answer is learned from. */
+  readonly answer?: "text";
+  /** Where to read more, e.g. the articles a world idea is about. Only http(s) URLs. */
+  readonly links?: readonly { readonly title: string; readonly url: string }[];
+}
+
+export type IdeaType = "serve" | "ask" | "world";
+
+/** One thing moqi thought of while reflecting, and what became of it. */
+export interface Idea {
+  readonly type: IdeaType;
+  readonly title: string;
+  readonly value: number;
+  /** The offer it became; absent when it was skipped before becoming one. */
+  readonly offerId?: string;
+  readonly skipped?: string;
 }
 
 export type Surface = "notify" | "feed";
@@ -95,7 +111,9 @@ export type EventBody =
   | { type: "fact.resolved"; factId: string; keep: "old" | "new" }
   | { type: "fact.forgotten"; factId: string }
   | { type: "offer.created"; offer: Offer }
-  | { type: "offer.delivered"; offerId: string; surface: Surface }
+  | { type: "offer.delivered"; offerId: string; surface: Surface; reason?: string }
+  | { type: "offer.dropped"; offerId: string; reason: string }
+  | { type: "thought"; trigger: "timer" | "chat" | "user"; ideas: readonly Idea[]; error?: string }
   | { type: "offer.feedback"; offerId: string; verdict: Verdict }
   | { type: "tool.called"; tool: string; args: Record<string, unknown>; byUser: boolean; ok: boolean }
   | { type: "approval"; kind: string; approved: boolean }

@@ -56,6 +56,7 @@ export function harness(
   const moqi = new Moqi({
     clock,
     briefingAt: null,
+    reflect: false, // reflection has its own tests; elsewhere it would consume scripted replies
     deliver: (offer, surface) => void delivered.push({ offer, surface }),
     confirm: async (q) => {
       asked.push(q);
