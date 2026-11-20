@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-- Console: `moqi` now starts moqi in the background and opens a page on 127.0.0.1 with chat, feed, memory and settings. Settings apply at once without a restart; model presets with a connection test, city search for the weather, a check for the calendar file. The page needs a per-home key, refuses foreign `Host` headers, loads nothing from outside and never receives a saved API key.
+## [0.2.0] - 2026-11-20
+
+- Console: `moqi` now starts moqi in the background and opens a page on 127.0.0.1 with chat, feed, memory and settings. Settings apply at once without a restart; model presets with a connection test, city search for the weather, a check for the calendar file. The page needs a per-home key, refuses foreign `Host` headers, loads nothing from outside and never receives a saved API key; a saved key is only ever sent to the endpoint it was saved for.
 - `moqi stop`; `moqi brief` asks the running moqi instead of failing on its lock. The terminal chat moved to `moqi chat`.
 - Config: times must be `HH:MM`.
 
