@@ -1,0 +1,79 @@
+{
+  "name": "moqi",
+  "version": "0.1.0",
+  "description": "A minimal personal agent that learns you and speaks up first. Pure TypeScript core for desktop and phone.",
+  "keywords": [
+    "personal-agent",
+    "assistant",
+    "proactive",
+    "agent",
+    "memory",
+    "llm",
+    "local-first",
+    "taugraph"
+  ],
+  "license": "MIT",
+  "author": "wangcao-hub (https://github.com/wangcao-hub)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wangcao-hub/moqi.git"
+  },
+  "homepage": "https://github.com/wangcao-hub/moqi#readme",
+  "bugs": {
+    "url": "https://github.com/wangcao-hub/moqi/issues"
+  },
+  "type": "module",
+  "bin": {
+    "moqi": "dist/node/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./plugins": {
+      "types": "./dist/plugins/index.d.ts",
+      "import": "./dist/plugins/index.js"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "import": "./dist/node/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "docs",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@9.15.9",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node -e \"require('node:fs').chmodSync('dist/node/cli.js',0o755)\"",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "pnpm build && TZ=Asia/Shanghai vitest run",
+    "check": "pnpm typecheck && pnpm lint && pnpm test"
+  },
+  "dependencies": {
+    "taugraph": "^0.2.0",
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2",
+    "@types/node": "^24",
+    "typescript": "^5.9",
+    "vitest": "^5"
+  }
+}

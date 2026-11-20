@@ -1,0 +1,136 @@
+// The model contract: chat with optional tool calling. Bring any provider with an adapter.
+
+export interface ToolCall {
+  readonly id: string;
+  readonly name: string;
+  /** JSON text, as the model produced it. */
+  readonly arguments: string;
+}
+
+export type ChatMessage =
+  | { readonly role: "system" | "user"; readonly content: string }
+  | { readonly role: "assistant"; readonly content: string; readonly toolCalls?: readonly ToolCall[] }
+  | { readonly role: "tool"; readonly content: string; readonly toolCallId: string };
+
+export interface ToolSpec {
+  readonly name: string;
+  readonly description: string;
+  /** JSON Schema of the arguments object. */
+  readonly parameters: Record<string, unknown>;
+}
+
+export interface ChatRequest {
+  readonly messages: readonly ChatMessage[];
+  readonly tools?: readonly ToolSpec[];
+  readonly temperature?: number;
+  readonly maxTokens?: number;
+  /** Ask for a JSON object reply, where the provider supports it. */
+  readonly json?: boolean;
+  /** "off" asks reasoning models not to think first. Used for quick side requests; adapters map it as they can. */
+  readonly reasoning?: "off";
+  readonly signal?: AbortSignal;
+}
+
+export interface ChatReply {
+  readonly content: string;
+  readonly toolCalls: readonly ToolCall[];
+}
+
+export interface ChatModel {
+  readonly id: string;
+  chat(request: ChatRequest): Promise<ChatReply>;
+}
+
+export interface OpenAICompatibleOptions {
+  /** e.g. "https://api.deepseek.com/v1" or "http://127.0.0.1:11434/v1" for Ollama. */
+  readonly baseURL: string;
+  readonly model: string;
+  readonly apiKey?: string;
+  /** Overrides global fetch, e.g. for tests. */
+  readonly fetch?: typeof fetch;
+  /**
+   * For Qwen3-style models: honour `reasoning: "off"` by appending the "/no_think" switch to the last
+   * user message. Without it, small local models can spend the whole token budget thinking.
+   */
+  readonly noThink?: boolean;
+}
+
+/** OpenAI-compatible /chat/completions with function calling: OpenAI, DeepSeek, Qwen, Ollama, vLLM, ... */
+export function openAICompatible(options: OpenAICompatibleOptions): ChatModel {
+  const url = `${options.baseURL.replace(/\/+$/, "")}/chat/completions`;
+  const doFetch = options.fetch ?? fetch;
+  return {
+    id: `openai-compatible:${options.model}`,
+    async chat(request) {
+      const response = await doFetch(url, {
+        method: "POST",
+        ...(request.signal && { signal: request.signal }),
+        headers: {
+          "content-type": "application/json",
+          ...(options.apiKey && { authorization: `Bearer ${options.apiKey}` }),
+        },
+        body: JSON.stringify({
+          model: options.model,
+          messages: withNoThink(request, options.noThink === true).map(toWire),
+          ...(request.tools?.length && {
+            tools: request.tools.map((t) => ({
+              type: "function",
+              function: { name: t.name, description: t.description, parameters: t.parameters },
+            })),
+          }),
+          ...(request.temperature !== undefined && { temperature: request.temperature }),
+          ...(request.maxTokens !== undefined && { max_tokens: request.maxTokens }),
+          ...(request.json && { response_format: { type: "json_object" } }),
+        }),
+      });
+      if (!response.ok)
+        throw new Error(`${url} responded ${response.status}: ${(await response.text()).slice(0, 300)}`);
+      const body = (await response.json()) as {
+        choices?: {
+          message?: {
+            content?: string | null;
+            tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[];
+          };
+        }[];
+      };
+      const message = body.choices?.[0]?.message;
+      return {
+        content: stripThinking(message?.content ?? ""),
+        toolCalls: (message?.tool_calls ?? []).flatMap((c, i) =>
+          c.function?.name
+            ? [{ id: c.id ?? `call_${i}`, name: c.function.name, arguments: c.function.arguments ?? "{}" }]
+            : [],
+        ),
+      };
+    },
+  };
+}
+
+function withNoThink(request: ChatRequest, enabled: boolean): readonly ChatMessage[] {
+  if (!enabled || request.reasoning !== "off") return request.messages;
+  const last = request.messages.map((m) => m.role).lastIndexOf("user");
+  return request.messages.map((m, i) =>
+    i === last && m.role === "user" ? { ...m, content: `${m.content} /no_think` } : m,
+  );
+}
+
+function toWire(m: ChatMessage): Record<string, unknown> {
+  if (m.role === "tool") return { role: "tool", content: m.content, tool_call_id: m.toolCallId };
+  if (m.role === "assistant" && m.toolCalls?.length) {
+    return {
+      role: "assistant",
+      content: m.content,
+      tool_calls: m.toolCalls.map((c) => ({
+        id: c.id,
+        type: "function",
+        function: { name: c.name, arguments: c.arguments },
+      })),
+    };
+  }
+  return { role: m.role, content: m.content };
+}
+
+/** Reasoning models (Qwen3, DeepSeek-R1 via some servers) put their thoughts in <think> tags. */
+export function stripThinking(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+}
