@@ -44,7 +44,7 @@
   "files": [
     "dist",
     "src",
-    "docs",
+    "docs/*.md",
     "README.md",
     "README.zh-CN.md",
     "CHANGELOG.md",
@@ -59,7 +59,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node -e \"require('node:fs').chmodSync('dist/node/cli.js',0o755)\"",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node -e \"const fs=require('node:fs');fs.cpSync('src/node/console/assets','dist/node/console/assets',{recursive:true});fs.chmodSync('dist/node/cli.js',0o755)\"",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "format": "biome check --write .",

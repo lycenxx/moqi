@@ -1,17 +1,25 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
+import { execFile, spawn } from "node:child_process";
+import { mkdirSync, openSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 import { activeFacts } from "../core/memory.js";
 import { describeSchedule } from "../core/schedule.js";
 import type { Offer, Surface, Verdict } from "../core/types.js";
 import { moqiHome, writeTemplate } from "./config.js";
+import { consoleToken, readConsoleInfo, runningConsole, writeConsoleInfo } from "./console/info.js";
+import { confirmQueue, DEFAULT_PORT, startConsole } from "./console/server.js";
+import { lockHolder } from "./file-store.js";
 import { type Home, openHome } from "./home.js";
 
 const HELP = `moqi — 不用开口就懂你的个人 agent
 
-  moqi            对话，并在后台替你留意（默认）
-  moqi daemon     只在后台留意，用系统通知找你
+  moqi            在后台运行 moqi，并在浏览器里打开控制台（对话、动态、记忆、设置）
+  moqi stop       停掉后台的 moqi
   moqi brief      打印今天的简报
+  moqi chat       在终端里对话（后台的 moqi 没在运行时）
+  moqi daemon     在前台运行，不开浏览器（给 launchd、systemd 这类服务管理器用）
   moqi init       在 ~/.moqi/config.json 写一份配置模板
 
 对话里的命令：
@@ -34,7 +42,7 @@ function heartbeat(home: Home, onError: (e: unknown) => void): () => void {
     if (busy) return;
     busy = true;
     try {
-      await home.moqi.tick();
+      await home.serial(() => home.moqi.tick());
     } catch (error) {
       onError(error);
     } finally {
@@ -132,7 +140,7 @@ async function interactive(): Promise<void> {
     confirm: async (question) => /^(y|yes|好|是|可以)/i.test(((await input.next(`${question} [y/N] `)) ?? "").trim()),
   });
   const stop = heartbeat(home, (e) => print(`（后台出错：${e instanceof Error ? e.message : String(e)}）`));
-  print(`moqi 在。${home.config.model ? "" : "还没配置模型，只能用命令；moqi init 生成配置。"}/help 看用法`);
+  print(`moqi 在。${home.config.model ? "" : "还没配置模型，只能用命令；运行 moqi 在控制台里设置。"}/help 看用法`);
   try {
     for (;;) {
       const raw = await input.next("你：");
@@ -146,7 +154,9 @@ async function interactive(): Promise<void> {
         continue;
       }
       if (!home.moqi.model) {
-        print("还没配置模型。运行 moqi init，编辑 ~/.moqi/config.json，或设置 MOQI_BASE_URL 和 MOQI_MODEL。");
+        print(
+          "还没配置模型。运行 moqi 在控制台里设置，或编辑 ~/.moqi/config.json，或设置 MOQI_BASE_URL 和 MOQI_MODEL。",
+        );
         continue;
       }
       try {
@@ -168,35 +178,115 @@ async function main(): Promise<void> {
   const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };
   if (cmd === "--help" || cmd === "-h" || cmd === "help") return void console.log(HELP);
   if (cmd === "--version" || cmd === "-v") return void console.log(pkg.version);
-  if (cmd === "init") return void console.log(`写好了：${writeTemplate(moqiHome())}`);
-  if (cmd === "brief") {
-    const home = openHome({ home: moqiHome() });
-    try {
-      const b = await home.moqi.briefing();
-      console.log(`${b.title}\n${b.body}`);
-    } finally {
-      home.close();
+  if (cmd === "init")
+    return void console.log(`写好了：${writeTemplate(moqiHome())}\n运行 moqi，在控制台的「设置」里改。`);
+  if (cmd === undefined || cmd === "open") return openConsole();
+  if (cmd === "daemon") return daemon();
+  if (cmd === "stop") return stop();
+  if (cmd === "brief") return brief();
+  if (cmd === "chat") {
+    const running = runningConsole(moqiHome());
+    if (running) throw new Error(`moqi 正在后台运行，请在控制台里对话：${running.url}\n想用终端对话，先 moqi stop。`);
+    return interactive();
+  }
+  console.error(`不认识 ${cmd}\n\n${HELP}`);
+  process.exitCode = 2;
+}
+
+/** The always-on home: heartbeat plus the console, in the foreground. */
+async function daemon(): Promise<void> {
+  const dir = moqiHome();
+  const asker = confirmQueue();
+  const home = openHome({ home: dir, onDeliver: (o, s) => console.log(show(o, s)), confirm: (q) => asker.ask(q) });
+  const stopBeat = heartbeat(home, (e) => console.error(`moqi: ${e instanceof Error ? e.message : String(e)}`));
+  const saved = readConsoleInfo(dir).port;
+  const token = consoleToken(dir);
+  const ui = await startConsole({ home, asker, token, port: saved ?? DEFAULT_PORT });
+  writeConsoleInfo(dir, { pid: process.pid, port: ui.port, token });
+  console.log(`moqi 在后台留意着（${home.logPath}）。\n控制台：${ui.url}`);
+  let quitting = false;
+  const quit = async () => {
+    if (quitting) return;
+    quitting = true;
+    stopBeat();
+    await ui.close();
+    await home.moqi.idle();
+    home.close();
+    process.exit(0);
+  };
+  process.once("SIGINT", () => void quit());
+  process.once("SIGTERM", () => void quit());
+}
+
+/** Starts the home in the background if it is not running, then opens the console in the browser. */
+async function openConsole(): Promise<void> {
+  const dir = moqiHome();
+  let running = runningConsole(dir);
+  if (!running) {
+    const holder = lockHolder(dir);
+    if (holder) throw new Error(`终端里的 moqi chat 正在用这个目录（pid ${holder}），先退出它。`);
+    mkdirSync(dir, { recursive: true, mode: 0o700 }); // first run on this machine
+    const log = join(dir, "daemon.log");
+    const out = openSync(log, "w");
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "daemon"], {
+      detached: true,
+      stdio: ["ignore", out, out],
+      env: process.env,
+    });
+    child.unref();
+    for (let i = 0; i < 100 && !running; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      if (child.exitCode !== null) break;
+      running = runningConsole(dir);
+      if (running && running.pid !== child.pid) running = undefined;
     }
-    return;
+    if (!running) throw new Error(`moqi 没能启动，看看 ${log}`);
+    console.log(`moqi 在后台运行了（pid ${running.pid}）。停掉它：moqi stop`);
   }
-  if (cmd === "daemon") {
-    const home = openHome({ home: moqiHome(), onDeliver: (o, s) => console.log(show(o, s)) });
-    heartbeat(home, (e) => console.error(`moqi: ${e instanceof Error ? e.message : String(e)}`));
-    console.log(`moqi 在后台留意着（${home.logPath}）。Ctrl+C 退出。`);
-    const quit = () => {
-      home.close();
-      process.exit(0);
-    };
-    process.once("SIGINT", quit);
-    process.once("SIGTERM", quit);
-    return;
+  console.log(`控制台：${running.url}`);
+  if (!process.env.MOQI_NO_OPEN) openBrowser(running.url);
+}
+
+async function stop(): Promise<void> {
+  const dir = moqiHome();
+  const pid = lockHolder(dir);
+  if (!pid) return void console.log("moqi 没在运行");
+  process.kill(pid, "SIGTERM");
+  for (let i = 0; i < 50 && lockHolder(dir); i++) await new Promise((r) => setTimeout(r, 100));
+  if (lockHolder(dir)) throw new Error(`pid ${pid} 还没退出`);
+  console.log("moqi 已停止");
+}
+
+async function brief(): Promise<void> {
+  const dir = moqiHome();
+  const running = runningConsole(dir);
+  if (running) {
+    // The running moqi owns the log, so ask it instead of opening the log a second time.
+    const response = await fetch(`http://127.0.0.1:${running.port}/api/briefing`, {
+      headers: { "x-moqi-token": running.token },
+    });
+    const data = (await response.json()) as { title?: string; body?: string; error?: string };
+    if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+    return void console.log(`${data.title}\n${data.body}`);
   }
-  if (cmd !== undefined) {
-    console.error(`不认识 ${cmd}\n\n${HELP}`);
-    process.exitCode = 2;
-    return;
+  const home = openHome({ home: dir });
+  try {
+    const b = await home.moqi.briefing();
+    console.log(`${b.title}\n${b.body}`);
+  } finally {
+    home.close();
   }
-  await interactive();
+}
+
+/** Arguments, never a shell string, so a URL cannot run commands. */
+function openBrowser(url: string): void {
+  const [file, args] =
+    process.platform === "darwin"
+      ? ["open", [url]]
+      : process.platform === "win32"
+        ? ["cmd", ["/c", "start", "", url]]
+        : ["xdg-open", [url]];
+  execFile(file, args, () => {}); // no browser is fine: the URL is printed
 }
 
 main().catch((error: unknown) => {

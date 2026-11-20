@@ -79,31 +79,29 @@ Requires Node.js 22 or later. The npm package is `moqi-agent`; the command it in
 
 ```
 npm install -g moqi-agent
-moqi init        # writes ~/.moqi/config.json
-moqi             # chat, while moqi keeps an eye out in the background
+moqi             # starts moqi in the background and opens its console in your browser
 ```
 
-Point the config at any OpenAI-compatible model. A local Ollama works (the template uses `qwen3:4b`; run `ollama pull qwen3:4b` first), and so do DeepSeek, Qwen and other hosted models. If replies get cut off as a conversation grows, give Ollama a larger context window, e.g. `OLLAMA_CONTEXT_LENGTH=16384 ollama serve`.
+![The moqi console](./docs/console.png)
 
-```
-你：我住在深圳南山，在一家互联网公司做产品
-moqi：记住了
-你：每天晚上 10 点提醒我早点睡
-要我每天 22:00提醒你「早点睡」吗？ [y/N] y
-moqi：好，每天 22:00 替你提醒「早点睡」
-```
+The console has four tabs: **Chat**, **Feed** (what moqi wants to tell you; accept, dismiss or mute each kind), **Memory** (what it remembers about you and what it watches for you; delete anything wrong) and **Settings**. The first time, it opens on Settings: pick a model, press "test connection", search for your city, save. Changes apply at once, without a restart. The console's own text is in Chinese for now.
 
-(The CLI's own messages are in Chinese for now.)
+Any OpenAI-compatible model works. A local Ollama needs no key (`ollama pull qwen3:4b` first); DeepSeek, Qwen and other hosted models need one. If replies get cut off as a conversation grows, give Ollama a larger context window, e.g. `OLLAMA_CONTEXT_LENGTH=16384 ollama serve`.
 
-Commands inside the chat: `/brief`, `/offers`, `/accept <id>`, `/dismiss <id>`, `/mute <id>`, `/unmute <kind>`, `/memory`, `/watches`, `/trust`, `/help`, `/quit`.
+| Command       | What it does                                                                                                         |
+| ------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `moqi`        | Starts moqi in the background if it is not running, then opens the console                                           |
+| `moqi stop`   | Stops the background moqi                                                                                            |
+| `moqi brief`  | Prints today's briefing                                                                                              |
+| `moqi chat`   | Chats in the terminal, when the background moqi is not running (`/brief`, `/offers`, `/accept <id>`, `/memory`, ...) |
+| `moqi daemon` | Runs in the foreground without opening a browser, for launchd, systemd or pm2                                        |
+| `moqi init`   | Writes a config template, for machines without a browser                                                             |
 
-- `moqi daemon` keeps watch without a chat and reaches you through system notifications (macOS, Linux). To keep it running, start it with whatever you use for background services (launchd, systemd, pm2).
-- `moqi brief` prints today's briefing.
-- Only one moqi process can use a home directory at a time, so stop the daemon before you open a chat. While a chat is open it does the daemon's job too.
+The background moqi reaches you through system notifications (macOS, Linux) and the console's feed. One moqi owns a home directory at a time; the console, `moqi brief` and (later) the phone all go through it.
 
 ## Configuration
 
-`~/.moqi/config.json` (the directory can be changed with `MOQI_HOME`):
+The Settings tab writes `~/.moqi/config.json`; you can also edit it by hand (the directory can be changed with `MOQI_HOME`):
 
 ```json
 {
@@ -189,17 +187,19 @@ setInterval(() => void moqi.tick(), 60_000); // the proactive heartbeat
 
 All state is replayed from `~/.moqi/events.jsonl`, one event per line, append-only. API keys never go into the log, and `config.json` is created readable only by you.
 
+The console listens on `127.0.0.1` only. Its address carries a random key after `#`, so the key never reaches a server log; every API call must present it, requests whose `Host` is not this machine are refused (against DNS rebinding), and the page loads nothing from outside under a strict Content Security Policy. A saved API key is never sent to the page.
+
 Two things leave your computer: requests to the model endpoint you configured (the conversation plus the memories moqi includes in the prompt), and, if the weather plugin is on, your configured coordinates sent to Open-Meteo. With a local model, the weather request is the only one.
 
 ## Status and limits
 
-Version 0.1 runs on a computer: core, CLI, weather and calendar plugins, notifications, watches, routines and background learning.
+moqi runs on a computer: core, console, CLI, weather and calendar plugins, notifications, watches, routines and background learning.
 
 - The phone app and multi-device sync are next. The core already follows the rules needed to run on a phone, and a test enforces them.
 - Repeating calendar events (RRULE) are not expanded yet.
 - Small local models (4B) sometimes record one-off requests as facts. Check with `/memory`; ask moqi to forget anything wrong.
 - `auto-undo` currently means "do it and tell you"; undoing is the matching cancel action.
-- A chat cannot attach to a running daemon yet (see the note in Quick start).
+- The terminal chat (`moqi chat`) does not attach to the background moqi yet; use the console while it runs.
 
 ## Development
 

@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>moqi</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/app.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="top">
+      <div class="top-inner">
+        <div class="brand"><span class="dot" aria-hidden="true"></span>moqi</div>
+        <div class="tabs" role="tablist" aria-label="moqi">
+          <button type="button" role="tab" id="tab-chat" data-view="chat" aria-controls="view-chat" aria-selected="true">对话</button>
+          <button type="button" role="tab" id="tab-feed" data-view="feed" aria-controls="view-feed" aria-selected="false" tabindex="-1">
+            动态<span class="count" id="feed-count" hidden></span>
+          </button>
+          <button type="button" role="tab" id="tab-memory" data-view="memory" aria-controls="view-memory" aria-selected="false" tabindex="-1">记忆</button>
+          <button type="button" role="tab" id="tab-settings" data-view="settings" aria-controls="view-settings" aria-selected="false" tabindex="-1">设置</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="page">
+      <p class="banner" id="banner" role="alert" hidden></p>
+
+      <section class="view chat" id="view-chat" role="tabpanel" aria-labelledby="tab-chat">
+        <div class="messages" id="messages" aria-live="polite"></div>
+        <div class="ask" id="ask" hidden>
+          <p class="ask-text" id="ask-text"></p>
+          <div class="actions">
+            <button type="button" class="btn primary" id="ask-yes">好</button>
+            <button type="button" class="btn" id="ask-no">不用</button>
+          </div>
+        </div>
+        <form class="composer" id="composer">
+          <label for="input" class="sr-only">对 moqi 说</label>
+          <textarea id="input" rows="1" placeholder="跟 moqi 说点什么" autocomplete="off"></textarea>
+          <button type="submit" class="send" id="send" aria-label="发送">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+          </button>
+        </form>
+      </section>
+
+      <section class="view" id="view-feed" role="tabpanel" aria-labelledby="tab-feed" hidden>
+        <h1 class="title">动态</h1>
+        <p class="lead">moqi 主动想告诉你的事。你的每次选择，都会让它更清楚什么时候该开口。</p>
+        <div class="list" id="offers"></div>
+      </section>
+
+      <section class="view" id="view-memory" role="tabpanel" aria-labelledby="tab-memory" hidden>
+        <h1 class="title">记忆</h1>
+        <p class="lead">同一件事印证 3 次转为长期，30 天没再提起就淡出。记错的可以直接删掉。</p>
+        <h2 class="subtitle">它记住的</h2>
+        <div class="list" id="facts"></div>
+        <h2 class="subtitle">替你盯着的事</h2>
+        <div class="list" id="watches"></div>
+      </section>
+
+      <section class="view" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+        <h1 class="title">设置</h1>
+        <p class="lead">保存后立刻生效。配置只存在这台电脑的 ~/.moqi/config.json 里。</p>
+        <form class="settings" id="settings" novalidate>
+          <fieldset class="group">
+            <legend>模型</legend>
+            <p class="note" id="env-note" hidden></p>
+            <fieldset class="presets">
+              <legend class="sr-only">模型来源</legend>
+              <label><input type="radio" name="preset" value="ollama" /><span>本机 Ollama</span></label>
+              <label><input type="radio" name="preset" value="deepseek" /><span>DeepSeek</span></label>
+              <label><input type="radio" name="preset" value="qwen" /><span>通义千问</span></label>
+              <label><input type="radio" name="preset" value="custom" /><span>自定义</span></label>
+            </fieldset>
+            <div class="field">
+              <label for="m-base">接口地址</label>
+              <input id="m-base" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://…/v1" />
+            </div>
+            <div class="field">
+              <label for="m-model">模型名</label>
+              <input id="m-model" type="text" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="field">
+              <label for="m-key">API Key</label>
+              <input id="m-key" type="password" autocomplete="off" spellcheck="false" />
+              <p class="hint" id="m-key-hint">本机模型不用填</p>
+            </div>
+            <label class="check"><input type="checkbox" id="m-nothink" /> 后台请求关闭思考（本机 Qwen3 用，能省很多 token）</label>
+            <div class="row">
+              <button type="button" class="btn" id="m-test">测试连接</button>
+              <span class="result" id="m-test-result" role="status"></span>
+            </div>
+          </fieldset>
+
+          <fieldset class="group">
+            <legend>关于你</legend>
+            <div class="field">
+              <label for="persona">希望 moqi 怎么称呼你、怎么说话</label>
+              <textarea id="persona" rows="3" placeholder="比如：叫我小王，回答简短一点。"></textarea>
+              <p class="hint">可以不填。你是谁、喜欢什么，它会在对话里慢慢记住。</p>
+            </div>
+          </fieldset>
+
+          <fieldset class="group">
+            <legend class="legend-row">
+              <span>天气</span>
+              <label class="switch"><input type="checkbox" id="w-on" /><span class="sr-only">开启天气</span></label>
+            </legend>
+            <div id="w-body">
+              <div class="field">
+                <label for="w-q">所在城市</label>
+                <div class="inline">
+                  <input id="w-q" type="search" autocomplete="off" placeholder="比如：深圳" />
+                  <button type="button" class="btn" id="w-search">搜索</button>
+                </div>
+                <p class="hint" id="w-chosen">还没选城市</p>
+              </div>
+              <div class="choices" id="w-results"></div>
+            </div>
+          </fieldset>
+
+          <fieldset class="group">
+            <legend class="legend-row">
+              <span>日历</span>
+              <label class="switch"><input type="checkbox" id="c-on" /><span class="sr-only">开启日历</span></label>
+            </legend>
+            <div id="c-body">
+              <div class="field">
+                <label for="c-path">.ics 文件路径</label>
+                <div class="inline">
+                  <input id="c-path" type="text" autocomplete="off" spellcheck="false" placeholder="~/calendar.ics" />
+                  <button type="button" class="btn" id="c-check">检查</button>
+                </div>
+                <p class="hint" id="c-result">在 macOS「日历」里用「文件 → 导出」得到这个文件</p>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="group">
+            <legend>打扰规则</legend>
+            <div class="field">
+              <div class="legend-row">
+                <label for="b-at">每日简报</label>
+                <label class="switch"><input type="checkbox" id="b-on" /><span class="sr-only">开启每日简报</span></label>
+              </div>
+              <input id="b-at" type="time" class="short" />
+            </div>
+            <div class="field">
+              <fieldset class="plain">
+                <legend>免打扰时段</legend>
+                <div class="inline">
+                  <label for="q-from" class="sr-only">开始</label>
+                  <input id="q-from" type="time" class="short" />
+                  <span class="to" aria-hidden="true">到</span>
+                  <label for="q-to" class="sr-only">结束</label>
+                  <input id="q-to" type="time" class="short" />
+                </div>
+              </fieldset>
+              <p class="hint">这段时间只放进动态，不弹通知，除非真的很急。</p>
+            </div>
+            <div class="field">
+              <label for="budget">每天最多通知</label>
+              <div class="inline">
+                <input id="budget" type="number" min="0" max="50" step="1" inputmode="numeric" class="short" />
+                <span class="unit">条</span>
+              </div>
+            </div>
+          </fieldset>
+
+          <div class="savebar">
+            <span class="result" id="save-result" role="status"></span>
+            <button type="submit" class="btn primary" id="save">保存</button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>

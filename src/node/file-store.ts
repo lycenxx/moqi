@@ -73,6 +73,16 @@ export function acquireLock(home: string): () => void {
   throw new Error(`Could not take the lock at ${path}`);
 }
 
+/** The pid of the moqi that holds this home's lock, if one is running. */
+export function lockHolder(home: string): number | undefined {
+  try {
+    const pid = Number(readFileSync(join(home, "moqi.lock"), "utf8"));
+    return Number.isInteger(pid) && pid > 0 && isAlive(pid) ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);

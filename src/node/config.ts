@@ -1,9 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 
-const Config = z.object({
+const time = z.string().regex(/^([01]?\d|2[0-3]):[0-5]\d$/, "时间要写成 HH:MM");
+
+export const ConfigSchema = z.object({
   model: z
     .object({
       baseURL: z.string().url(),
@@ -13,13 +15,13 @@ const Config = z.object({
     })
     .optional(),
   persona: z.string().optional(),
-  briefingAt: z.string().nullable().default("08:00"),
-  quiet: z.object({ from: z.string(), to: z.string() }).default({ from: "22:30", to: "08:00" }),
+  briefingAt: time.nullable().default("08:00"),
+  quiet: z.object({ from: time, to: time }).default({ from: "22:30", to: "08:00" }),
   dailyBudget: z.number().int().min(0).max(50).default(3),
   weather: z.object({ latitude: z.number(), longitude: z.number(), place: z.string() }).optional(),
   calendar: z.object({ ics: z.string() }).optional(),
 });
-export type Config = z.infer<typeof Config>;
+export type Config = z.infer<typeof ConfigSchema>;
 
 export const TEMPLATE = {
   model: { baseURL: "http://127.0.0.1:11434/v1", model: "qwen3:4b", noThink: true },
@@ -40,9 +42,7 @@ export function expandHome(path: string): string {
 
 /** ~/.moqi/config.json, then MOQI_BASE_URL / MOQI_MODEL / MOQI_API_KEY on top. Keys stay out of the event log. */
 export function loadConfig(home: string, env: NodeJS.ProcessEnv = process.env): Config {
-  const path = join(home, "config.json");
-  const raw = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
-  const config = Config.parse(raw);
+  const config = readConfigFile(home);
   if (env.MOQI_BASE_URL && env.MOQI_MODEL) {
     return {
       ...config,
@@ -63,4 +63,19 @@ export function writeTemplate(home: string): string {
   mkdirSync(home, { recursive: true, mode: 0o700 });
   writeFileSync(path, `${JSON.stringify(TEMPLATE, null, 2)}\n`, { mode: 0o600 });
   return path;
+}
+
+/** Only what is in config.json, without environment overrides: what a settings page edits. */
+export function readConfigFile(home: string): Config {
+  const path = join(home, "config.json");
+  return ConfigSchema.parse(existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {});
+}
+
+/** Writes config.json readable only by the user, atomically so a crash never leaves half a file. */
+export function saveConfig(home: string, config: Config): void {
+  mkdirSync(home, { recursive: true, mode: 0o700 });
+  const path = join(home, "config.json");
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, path);
 }
