@@ -103,7 +103,9 @@ describe("config", () => {
       config: loadConfig(dir, {}),
       lock: false,
     });
-    expect(home.moqi.plugins.map((p) => p.name)).toEqual(["news"]); // news is on unless turned off
+    // news is on unless turned off; moqi always looks for other agents unless told not to
+    expect(home.moqi.plugins.map((p) => p.name)).toEqual(["news", "agents"]);
+    expect(home.agents?.command.args.at(-1)).toBe("mcp");
     home.close();
     const withPlugins = openHome({
       home: dir,
@@ -113,6 +115,7 @@ describe("config", () => {
         calendar: { ics: join(dir, "cal.ics") },
       },
       lock: false,
+      agents: false,
     });
     expect(withPlugins.moqi.plugins.map((p) => p.name)).toEqual(["weather", "calendar", "news"]);
     expect(withPlugins.moqi.tool("weather")).toBeDefined();

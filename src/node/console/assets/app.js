@@ -644,6 +644,7 @@ async function loadSettings() {
     $("q-to").value = config.quiet.to;
     $("budget").value = String(config.dailyBudget);
     showNews(config.news ? config.news.feeds : null);
+    await loadAgents();
   } catch (error) {
     toast(error.message);
   }
@@ -673,6 +674,57 @@ function modelInput() {
     noThink: $("m-nothink").checked || undefined,
     effort: effort || undefined,
   };
+}
+
+async function loadAgents() {
+  const box = $("agents");
+  let agents = [];
+  try {
+    agents = (await api("GET", "/api/agents")).agents;
+  } catch (error) {
+    box.replaceChildren(h("p", { class: "hint", text: error.message }));
+    return;
+  }
+  box.replaceChildren();
+  if (agents.length === 0) {
+    box.append(
+      h("p", { class: "none", text: "没找到别的 agent。装了 Kiro、Cursor、Claude Code 之类的之后，moqi 会自己发现。" }),
+    );
+  }
+  for (const a of agents) {
+    const status = a.problem ? a.problem : a.connected ? "已接入" : "未接入";
+    const button = h("button", {
+      type: "button",
+      class: a.connected ? "btn" : "btn primary",
+      text: a.connected ? "断开" : "接入",
+      disabled: !!a.problem,
+    });
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await api("POST", a.connected ? "/api/agents/disconnect" : "/api/agents/connect", { id: a.id });
+        toast(
+          a.connected ? `已从 ${a.name} 断开` : `已接入 ${a.name}。新开一个会话，或在它的 MCP 设置里刷新一下就能用`,
+        );
+      } catch (error) {
+        toast(error.message);
+      }
+      loadAgents();
+    });
+    box.append(
+      h(
+        "div",
+        { class: "item" },
+        h(
+          "div",
+          { class: "item-main" },
+          h("p", { class: "item-text" }, a.connected ? h("span", { class: "tag", text: "已接入" }) : null, a.name),
+          h("p", { class: "item-meta", text: a.connected ? a.path : `${status} · ${a.path}` }),
+        ),
+        button,
+      ),
+    );
+  }
 }
 
 function showNews(feeds) {

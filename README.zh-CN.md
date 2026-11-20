@@ -127,19 +127,9 @@ moqi：已设好，每天 22:00 提醒早点睡。
 | `moqi_feed`     | 看 moqi 正等着告诉你或问你的事                                                             |
 | `moqi_briefing` | 今天的简报                                                                                 |
 
-Kiro CLI：
+**moqi 会自己找。** 它会去 Kiro、Cursor、Claude Code、Claude Desktop、VS Code、Windsurf、Gemini CLI 存放设置的地方看看，也会在你的用户目录里找其他带 MCP 配置的 agent。找到后，在动态里问你一次（"发现你电脑上有 Kiro、Cursor，要接入 moqi 吗？"），点「好」就全部接上。控制台的设置里也会列出找到的每个 agent，可以单独接入或断开。moqi 只在配置里加一项 `moqi`，文件里原有的内容和权限都不变，第一次改之前先备份成 `.moqi-backup`，读不懂的文件一律不碰。写进去的是绝对路径，所以从程序坞打开的应用不依赖 shell 的 `PATH` 也能找到 moqi。接入后，在那个 agent 里新开一个会话，或刷新它的 MCP 设置，就能用了。
 
-```
-kiro-cli mcp add --name moqi --command moqi --args mcp
-```
-
-Cursor，写进 `~/.cursor/mcp.json`（Kiro 的 `~/.kiro/settings/mcp.json` 也是同样的格式）：
-
-```json
-{ "mcpServers": { "moqi": { "command": "moqi", "args": ["mcp"] } } }
-```
-
-Claude Code：`claude mcp add moqi -- moqi mcp`。
+也可以手动接入：`kiro-cli mcp add --name moqi --command moqi --args mcp`；Cursor 在 `~/.cursor/mcp.json` 里写 `{ "mcpServers": { "moqi": { "command": "moqi", "args": ["mcp"] } } }`；Claude Code 用 `claude mcp add moqi -- moqi mcp`。
 
 ## 配置
 

@@ -119,19 +119,9 @@ Your coding agent knows what you are working on; moqi knows you. `moqi mcp` conn
 | `moqi_feed`     | See what moqi is waiting to tell or ask you                                                                                   |
 | `moqi_briefing` | Today's briefing                                                                                                              |
 
-Kiro CLI:
+**moqi finds them itself.** It looks for Kiro, Cursor, Claude Code, Claude Desktop, VS Code, Windsurf and Gemini CLI where they keep their settings, and for any other agent with an MCP config in your home directory. When it finds some, it asks once in the feed ("发现你电脑上有 Kiro、Cursor，要接入 moqi 吗？"); one tap connects them all. The console's settings list every agent found, with a button to connect or disconnect each. moqi adds a single `moqi` entry, keeps everything else in the file and its permissions, backs the file up once as `.moqi-backup`, and does not touch a file it cannot parse. The entry uses absolute paths, so apps started from the Dock find moqi without a shell `PATH`. Start a new session in the agent, or refresh its MCP settings, to use it.
 
-```
-kiro-cli mcp add --name moqi --command moqi --args mcp
-```
-
-Cursor, in `~/.cursor/mcp.json` (Kiro reads the same shape from `~/.kiro/settings/mcp.json`):
-
-```json
-{ "mcpServers": { "moqi": { "command": "moqi", "args": ["mcp"] } } }
-```
-
-Claude Code: `claude mcp add moqi -- moqi mcp`.
+By hand, if you prefer: `kiro-cli mcp add --name moqi --command moqi --args mcp`; in `~/.cursor/mcp.json` `{ "mcpServers": { "moqi": { "command": "moqi", "args": ["mcp"] } } }`; for Claude Code `claude mcp add moqi -- moqi mcp`.
 
 ## Configuration
 

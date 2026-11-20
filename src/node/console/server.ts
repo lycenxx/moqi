@@ -10,6 +10,7 @@ import { describeSchedule } from "../../core/schedule.js";
 import type { FactKind, Urgency, Verdict } from "../../core/types.js";
 import { parseIcs } from "../../plugins/calendar.js";
 import { NEWS_FEEDS } from "../../plugins/news.js";
+import { connectAgent, disconnectAgent, findAgents } from "../agents.js";
 import { ConfigSchema, expandHome, loadConfig, readConfigFile, saveConfig } from "../config.js";
 import type { Home } from "../home.js";
 import { CONSOLE_HOST, consoleUrl } from "./info.js";
@@ -256,6 +257,32 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       return { id: offer.id, surface: record?.dropped ? "drop" : record?.surface, reason: record?.reason ?? "" };
     },
 
+    "GET /api/agents": () => {
+      const a = home.agents;
+      if (!a) return { agents: [] };
+      return { agents: findAgents(a.home, a.platform).map((x) => ({ ...x, path: tilde(x.path, a.home) })) };
+    },
+
+    "POST /api/agents/connect": (body) => {
+      const a = home.agents;
+      if (!a) throw new HttpError(404, "没有开启找 agent");
+      try {
+        return { path: tilde(connectAgent(str(body.id, "id"), a.command, a.home, a.platform), a.home) };
+      } catch (error) {
+        throw new HttpError(409, message(error));
+      }
+    },
+
+    "POST /api/agents/disconnect": (body) => {
+      const a = home.agents;
+      if (!a) throw new HttpError(404, "没有开启找 agent");
+      try {
+        return { path: tilde(disconnectAgent(str(body.id, "id"), a.home, a.platform), a.home) };
+      } catch (error) {
+        throw new HttpError(409, message(error));
+      }
+    },
+
     "POST /api/reflect": async () => {
       if (!home.moqi.model) throw new HttpError(409, "还没配置模型，先去设置里接一个");
       const ideas = await home.moqi.reflect("user");
@@ -466,6 +493,10 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
   } catch {
     throw new HttpError(400, "JSON 格式不对");
   }
+}
+
+function tilde(path: string, home: string): string {
+  return path.startsWith(home) ? `~${path.slice(home.length)}` : path;
 }
 
 function str(value: unknown, name: string): string {

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -43,7 +43,18 @@ async function start(
   writeFileSync(join(dir, "config.json"), JSON.stringify(config));
   const net = fakeNet(model);
   const asker = confirmQueue();
-  const home = openHome({ home: dir, notifier: async () => {}, fetch: net.fetch, confirm: (q) => asker.ask(q) });
+  const osHome = mkdtempSync(join(tmpdir(), "moqi-os-home-"));
+  const home = openHome({
+    home: dir,
+    notifier: async () => {},
+    fetch: net.fetch,
+    confirm: (q) => asker.ask(q),
+    agents: {
+      home: osHome,
+      command: { command: "/usr/bin/node", args: ["/opt/moqi/cli.js", "mcp"] },
+      platform: "darwin",
+    },
+  });
   const ui = await startConsole({ home, asker, token: "t".repeat(32), port: 0, fetch: net.fetch, env: {} });
   open.push({ home, ui });
   const api = async (method: string, path: string, body?: unknown, token = "t".repeat(32)) => {
@@ -58,7 +69,7 @@ async function start(
       data: (await res.json()) as Record<string, any>,
     };
   };
-  return { dir, home, ui, api, net };
+  return { dir, osHome, home, ui, api, net };
 }
 
 afterEach(async () => {
@@ -394,6 +405,26 @@ describe("console: other agents", () => {
     expect(told.data.surface).toMatch(/notify|feed/);
     expect(home.moqi.state.offers.get(told.data.id)?.offer).toMatchObject({ kind: "agent.kiro", value: 0.85 });
     expect((await api("POST", "/api/tell", { title: "" })).status).toBe(400);
+  });
+});
+
+describe("console: connecting other agents", () => {
+  it("lists the agents moqi found and connects or disconnects one on the user's click", async () => {
+    const { osHome, api } = await start({ briefingAt: null });
+    expect((await api("GET", "/api/agents")).data.agents).toEqual([]);
+    mkdirSync(join(osHome, ".cursor"), { recursive: true });
+    writeFileSync(join(osHome, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { other: { command: "x" } } }));
+    const listed = (await api("GET", "/api/agents")).data.agents;
+    expect(listed).toEqual([{ id: "cursor", name: "Cursor", path: "~/.cursor/mcp.json", connected: false }]);
+
+    expect((await api("POST", "/api/agents/connect", { id: "cursor" })).data).toEqual({ path: "~/.cursor/mcp.json" });
+    const file = JSON.parse(readFileSync(join(osHome, ".cursor", "mcp.json"), "utf8"));
+    expect(Object.keys(file.mcpServers)).toEqual(["other", "moqi"]);
+    expect((await api("GET", "/api/agents")).data.agents[0].connected).toBe(true);
+
+    expect((await api("POST", "/api/agents/disconnect", { id: "cursor" })).status).toBe(200);
+    expect((await api("GET", "/api/agents")).data.agents[0].connected).toBe(false);
+    expect((await api("POST", "/api/agents/connect", { id: "nobody" })).status).toBe(409);
   });
 });
 
