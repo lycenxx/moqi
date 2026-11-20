@@ -12,6 +12,7 @@ import { consoleAddress, consoleToken, runningConsole, writeConsoleInfo } from "
 import { confirmQueue, DEFAULT_PORT, startConsole } from "./console/server.js";
 import { lockHolder } from "./file-store.js";
 import { type Home, openHome } from "./home.js";
+import { type MoqiLink, serveMcp } from "./mcp.js";
 
 const HELP = `moqi — 不用开口就懂你的个人 agent
 
@@ -20,6 +21,7 @@ const HELP = `moqi — 不用开口就懂你的个人 agent
   moqi brief      打印今天的简报
   moqi chat       在终端里对话（后台的 moqi 没在运行时）
   moqi daemon     在前台运行，不开浏览器（给 launchd、systemd 这类服务管理器用）
+  moqi mcp        MCP 服务（stdio），让 Kiro、Cursor 等其他 agent 和 moqi 交流
   moqi init       在 ~/.moqi/config.json 写一份配置模板
 
 对话里的命令：
@@ -184,6 +186,7 @@ async function main(): Promise<void> {
   if (cmd === "daemon") return daemon();
   if (cmd === "stop") return stop();
   if (cmd === "brief") return brief();
+  if (cmd === "mcp") return mcp(pkg.version);
   if (cmd === "chat") {
     const running = runningConsole(moqiHome());
     if (running)
@@ -224,7 +227,14 @@ async function daemon(): Promise<void> {
 
 /** Starts the home in the background if it is not running, then opens the console in the browser. */
 async function openConsole(): Promise<void> {
-  const dir = moqiHome();
+  const running = await ensureRunning(moqiHome(), (line) => console.log(line));
+  console.log(`控制台：${consoleAddress(running.port)}`);
+  console.log(`第一次请用这个带钥匙的链接打开，之后这个浏览器直接输入上面的地址就行：\n${running.url}`);
+  if (!process.env.MOQI_NO_OPEN) openBrowser(running.url);
+}
+
+/** The running moqi, started in the background first if needed. */
+async function ensureRunning(dir: string, say: (line: string) => void) {
   let running = runningConsole(dir);
   if (!running) {
     const holder = lockHolder(dir);
@@ -245,11 +255,29 @@ async function openConsole(): Promise<void> {
       if (running && running.pid !== child.pid) running = undefined;
     }
     if (!running) throw new Error(`moqi 没能启动，看看 ${log}`);
-    console.log(`moqi 在后台运行了（pid ${running.pid}）。停掉它：moqi stop`);
+    say(`moqi 在后台运行了（pid ${running.pid}）。停掉它：moqi stop`);
   }
-  console.log(`控制台：${consoleAddress(running.port)}`);
-  console.log(`第一次请用这个带钥匙的链接打开，之后这个浏览器直接输入上面的地址就行：\n${running.url}`);
-  if (!process.env.MOQI_NO_OPEN) openBrowser(running.url);
+  return running;
+}
+
+/** MCP over stdio for other agents. stdout carries the protocol only; everything else goes to stderr. */
+async function mcp(version: string): Promise<void> {
+  const dir = moqiHome();
+  const say = (line: string) => process.stderr.write(`${line}\n`);
+  const link: MoqiLink = {
+    async call(method, path, body) {
+      const running = await ensureRunning(dir, say); // looked up each time: moqi may have been restarted
+      const response = await fetch(`http://127.0.0.1:${running.port}${path}`, {
+        method,
+        headers: { "x-moqi-token": running.token, ...(body !== undefined && { "content-type": "application/json" }) },
+        ...(body !== undefined && { body: JSON.stringify(body) }),
+      });
+      const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!response.ok) throw new Error(String(data.error ?? `moqi 回答了 HTTP ${response.status}`));
+      return data;
+    },
+  };
+  await serveMcp(link, version);
 }
 
 async function stop(): Promise<void> {

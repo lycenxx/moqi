@@ -72,6 +72,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@types/node": "^24",
     "typescript": "^5.9",
     "vitest": "^5"

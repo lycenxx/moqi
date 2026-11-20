@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- `moqi mcp`: an MCP server over stdio so other agents (Kiro, Cursor, Claude Code) can read the user's profile, record what they learned about the user, tell the user something through moqi's attention rules (per agent, so one can be muted alone), talk to moqi, and read its feed and briefing. It starts moqi in the background when needed. No new runtime dependency; tested with the official MCP client and with Kiro CLI.
+
 - Fix: in the console, the answer box of a question lost focus and what was typed every few seconds. The feed and memory lists are now rebuilt only when what they show changes, and a draft answer and its cursor survive a rebuild.
 
 ## [0.3.0] - 2026-11-20

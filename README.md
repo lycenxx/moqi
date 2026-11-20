@@ -101,9 +101,37 @@ Any OpenAI-compatible model works. A local Ollama needs no key: `qwen3:4b` (2.5 
 | `moqi brief`  | Prints today's briefing                                                                                              |
 | `moqi chat`   | Chats in the terminal, when the background moqi is not running (`/brief`, `/offers`, `/accept <id>`, `/memory`, ...) |
 | `moqi daemon` | Runs in the foreground without opening a browser, for launchd, systemd or pm2                                        |
+| `moqi mcp`    | An MCP server over stdio, so other agents can talk to moqi (see below)                                               |
 | `moqi init`   | Writes a config template, for machines without a browser                                                             |
 
 The background moqi reaches you through system notifications (macOS, Linux) and the console's feed. One moqi owns a home directory at a time; the console, `moqi brief` and (later) the phone all go through it.
+
+## Other agents talk to moqi (MCP)
+
+Your coding agent knows what you are working on; moqi knows you. `moqi mcp` connects the two over the Model Context Protocol. It starts moqi in the background if needed and talks to it, so moqi's log keeps one writer.
+
+| Tool            | What another agent can do with it                                                                                             |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `moqi_profile`  | Read what moqi knows about you, to personalize its work                                                                       |
+| `moqi_remember` | Record a lasting fact it learned about you; repeats confirm it, contradictions go to you                                      |
+| `moqi_tell`     | Tell you something ("the build finished"): moqi decides between a notification and its feed, and you can mute one agent alone |
+| `moqi_ask`      | Talk to moqi: it answers with what it knows and its tools (weather, calendar, news); actions still wait for your approval     |
+| `moqi_feed`     | See what moqi is waiting to tell or ask you                                                                                   |
+| `moqi_briefing` | Today's briefing                                                                                                              |
+
+Kiro CLI:
+
+```
+kiro-cli mcp add --name moqi --command moqi --args mcp
+```
+
+Cursor, in `~/.cursor/mcp.json` (Kiro reads the same shape from `~/.kiro/settings/mcp.json`):
+
+```json
+{ "mcpServers": { "moqi": { "command": "moqi", "args": ["mcp"] } } }
+```
+
+Claude Code: `claude mcp add moqi -- moqi mcp`.
 
 ## Configuration
 

@@ -382,6 +382,21 @@ describe("console: moqi thinking", () => {
   });
 });
 
+describe("console: other agents", () => {
+  it("records what another agent learned, and caps what it tells the user below the quiet-hours bar", async () => {
+    const { home, api } = await start({ briefingAt: null });
+    const r = await api("POST", "/api/remember", { content: "在做 taugraph", kind: "nonsense" });
+    expect(r.data.message).toContain("记住了");
+    expect([...home.moqi.state.facts.values()][0]).toMatchObject({ content: "在做 taugraph", kind: "other" });
+    expect((await api("POST", "/api/remember", { content: "  " })).status).toBe(400);
+
+    const told = await api("POST", "/api/tell", { title: "部署好了", urgency: "now", value: 1, from: "Kiro!" });
+    expect(told.data.surface).toMatch(/notify|feed/);
+    expect(home.moqi.state.offers.get(told.data.id)?.offer).toMatchObject({ kind: "agent.kiro", value: 0.85 });
+    expect((await api("POST", "/api/tell", { title: "" })).status).toBe(400);
+  });
+});
+
 describe("confirm queue", () => {
   it("treats an unanswered question as no, and only one question is open at a time", async () => {
     const asker = confirmQueue(30);

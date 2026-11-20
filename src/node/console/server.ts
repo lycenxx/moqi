@@ -4,10 +4,10 @@ import { timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { isFaded } from "../../core/memory.js";
+import { FACT_KINDS, isFaded } from "../../core/memory.js";
 import { openAICompatible } from "../../core/model.js";
 import { describeSchedule } from "../../core/schedule.js";
-import type { Verdict } from "../../core/types.js";
+import type { FactKind, Urgency, Verdict } from "../../core/types.js";
 import { parseIcs } from "../../plugins/calendar.js";
 import { NEWS_FEEDS } from "../../plugins/news.js";
 import { ConfigSchema, expandHome, loadConfig, readConfigFile, saveConfig } from "../config.js";
@@ -222,6 +222,38 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       const id = str(body.id, "id");
       const text = str(body.text, "text");
       return { message: await home.serial(() => home.moqi.answer(id, text)) };
+    },
+
+    // For other agents (through `moqi mcp`): what they learned about the user, and what they want to tell them.
+    "POST /api/remember": async (body) => {
+      const content = str(body.content, "content").trim();
+      if (content === "") throw new HttpError(400, "content 是空的");
+      const kind =
+        typeof body.kind === "string" && FACT_KINDS.includes(body.kind as FactKind) ? (body.kind as FactKind) : "other";
+      return { message: await home.serial(async () => home.moqi.remember({ kind, content })) };
+    },
+
+    "POST /api/tell": async (body) => {
+      const title = str(body.title, "title").trim().slice(0, 120);
+      if (title === "") throw new HttpError(400, "title 是空的");
+      const from = (typeof body.from === "string" ? body.from : "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 32);
+      const urgency = ["now", "today", "whenever"].includes(String(body.urgency)) ? (body.urgency as Urgency) : "today";
+      const value = Math.min(0.85, Math.max(0, typeof body.value === "number" ? body.value : 0.6)); // never breaks quiet hours
+      const offer = await home.serial(() =>
+        home.moqi.offer({
+          kind: `agent.${from || "other"}`,
+          title,
+          body: typeof body.body === "string" ? body.body.slice(0, 2000) : "",
+          value,
+          urgency,
+        }),
+      );
+      const record = home.moqi.state.offers.get(offer.id);
+      return { id: offer.id, surface: record?.dropped ? "drop" : record?.surface, reason: record?.reason ?? "" };
     },
 
     "POST /api/reflect": async () => {

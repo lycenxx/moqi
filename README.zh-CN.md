@@ -101,6 +101,7 @@ moqi             # 在后台运行 moqi，并在浏览器里打开控制台
 | `moqi brief`  | 打印今天的简报                                                                                |
 | `moqi chat`   | 在终端里对话，后台的 moqi 没在运行时可用（`/brief`、`/offers`、`/accept <id>`、`/memory` 等） |
 | `moqi daemon` | 在前台运行、不开浏览器，给 launchd、systemd、pm2 这类服务管理器用                             |
+| `moqi mcp`    | MCP 服务（stdio），让其他 agent 和 moqi 交流（见下文）                                        |
 | `moqi init`   | 写一份配置模板，给没有浏览器的机器用                                                          |
 
 后台的 moqi 用系统通知（macOS、Linux）和控制台的动态找你。同一个目录同时只由一个 moqi 持有，控制台、`moqi brief` 和以后的手机都通过它读写。
@@ -112,6 +113,33 @@ moqi：记住了
 （控制台弹出：要我每天 22:00提醒你「早点睡」吗？ 好 / 不用）
 moqi：已设好，每天 22:00 提醒早点睡。
 ```
+
+## 让其他 agent 和 moqi 交流（MCP）
+
+写代码的 agent 知道你在做什么，moqi 知道你是谁。`moqi mcp` 用 Model Context Protocol 把两边接起来：需要时它会先在后台启动 moqi，再和它通信，所以日志始终只有一个写入者。
+
+| 工具            | 其他 agent 能用它做什么                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------ |
+| `moqi_profile`  | 读 moqi 对你的了解，好让自己的工作更贴合你                                                 |
+| `moqi_remember` | 记下它了解到的关于你的事；重复出现会印证，前后矛盾交给你定                                 |
+| `moqi_tell`     | 告诉你一件事（比如"构建跑完了"）：由 moqi 决定弹通知还是放进动态，你可以单独关掉某个 agent |
+| `moqi_ask`      | 和 moqi 说话：它用对你的了解和自己的工具（天气、日历、新闻）回答；要动手的事仍等你批准     |
+| `moqi_feed`     | 看 moqi 正等着告诉你或问你的事                                                             |
+| `moqi_briefing` | 今天的简报                                                                                 |
+
+Kiro CLI：
+
+```
+kiro-cli mcp add --name moqi --command moqi --args mcp
+```
+
+Cursor，写进 `~/.cursor/mcp.json`（Kiro 的 `~/.kiro/settings/mcp.json` 也是同样的格式）：
+
+```json
+{ "mcpServers": { "moqi": { "command": "moqi", "args": ["mcp"] } } }
+```
+
+Claude Code：`claude mcp add moqi -- moqi mcp`。
 
 ## 配置
 
