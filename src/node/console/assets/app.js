@@ -48,6 +48,11 @@ let keyFor = ""; // the endpoint the saved key belongs to
 let toldAbout = ""; // the question id the user was already told about
 let effort; // reasoning strength for background work, set by the preset or the saved config
 let newsPresets = [];
+// Lists are rebuilt only when what they show changed: polling must never replace a box the user is typing in.
+let offersKey = "";
+let thoughtsKey = "";
+let memoryKey = "";
+const drafts = new Map(); // offer id -> what the user has typed so far
 
 /* Small helpers */
 
@@ -252,12 +257,36 @@ $("ask-no").addEventListener("click", () => answer(false));
 
 function renderFeed() {
   const list = $("offers");
-  list.replaceChildren();
-  if (state.offers.length === 0) {
-    list.append(h("p", { class: "none", text: "现在没有需要你的事。moqi 有话想说时，会先放在这里。" }));
+  const key = JSON.stringify(state.offers);
+  if (key !== offersKey) {
+    offersKey = key;
+    // Keep the answer the user is typing, and the cursor in it, across a rebuild.
+    const active = document.activeElement;
+    const typing = active?.dataset?.offer;
+    const selection = typing ? [active.selectionStart, active.selectionEnd] : null;
+    list.replaceChildren();
+    if (state.offers.length === 0) {
+      list.append(h("p", { class: "none", text: "现在没有需要你的事。moqi 有话想说时，会先放在这里。" }));
+    }
+    for (const o of state.offers) list.append(offerCard(o));
+    for (const id of drafts.keys()) if (!state.offers.some((o) => o.id === id)) drafts.delete(id);
+    const box = typing && list.querySelector(`textarea[data-offer="${CSS.escape(typing)}"]`);
+    if (box) {
+      box.focus({ preventScroll: true });
+      box.setSelectionRange(selection[0], selection[1]);
+    }
   }
-  for (const o of state.offers) list.append(offerCard(o));
+  refreshTimes(list);
   renderThoughts();
+}
+
+function timeOf(at) {
+  return h("span", { "data-at": String(at), text: when(at) });
+}
+
+/** Relative times ("3 分钟前") move on without rebuilding anything. */
+function refreshTimes(root) {
+  for (const el of root.querySelectorAll("[data-at]")) el.textContent = when(Number(el.dataset.at));
 }
 
 function offerCard(o) {
@@ -276,7 +305,7 @@ function offerCard(o) {
     "div",
     { class: "card-head" },
     h("h3", { class: "card-title", text: o.title }),
-    h("span", { class: "card-time", text: when(o.at) }),
+    h("span", { class: "card-time", "data-at": String(o.at), text: when(o.at) }),
   );
   const body = o.body ? h("p", { class: "card-body", text: o.body }) : null;
   const linkList = links.length
@@ -294,13 +323,17 @@ function offerCard(o) {
       rows: "2",
       placeholder: "随便说说，几个字也行",
       "aria-label": "回答这个问题",
+      "data-offer": o.id,
     });
+    box.value = drafts.get(o.id) ?? "";
+    box.addEventListener("input", () => drafts.set(o.id, box.value));
     const send = async (e) => {
       const text = box.value.trim();
       if (!text) return box.focus();
       e.currentTarget.disabled = true;
       try {
         const r = await api("POST", "/api/answer", { id: o.id, text });
+        drafts.delete(o.id);
         toast(r.message);
       } catch (error) {
         toast(error.message);
@@ -355,6 +388,9 @@ function renderThoughts() {
   else if (last) status.textContent = `上次是${when(last.at)}。每两小时、以及每次聊完，它都会自己想一想。`;
   else status.textContent = "还没想过。每两小时、以及每次聊完，它都会自己想一想。";
   const list = $("thoughts");
+  const key = JSON.stringify(state.thoughts);
+  if (key === thoughtsKey) return refreshTimes(list);
+  thoughtsKey = key;
   list.replaceChildren();
   for (const t of state.thoughts) {
     if (t.error) {
@@ -363,7 +399,7 @@ function renderThoughts() {
           "div",
           { class: "thought" },
           h("p", { class: "item-text", text: "这次没想成" }),
-          h("p", { class: "item-meta", text: `${when(t.at)} · ${t.error}` }),
+          h("p", { class: "item-meta" }, timeOf(t.at), ` · ${t.error}`),
         ),
       );
       continue;
@@ -374,7 +410,7 @@ function renderThoughts() {
           "div",
           { class: "thought" },
           h("p", { class: "item-text", text: "想了想，这次没什么要说的" }),
-          h("p", { class: "item-meta", text: when(t.at) }),
+          h("p", { class: "item-meta" }, timeOf(t.at)),
         ),
       );
     }
@@ -389,7 +425,7 @@ function renderThoughts() {
             h("span", { class: "tag", text: IDEA_LABEL[idea.type] || idea.type }),
             idea.title,
           ),
-          h("p", { class: "item-meta", text: `${when(t.at)} · ${idea.outcome}` }),
+          h("p", { class: "item-meta" }, timeOf(t.at), ` · ${idea.outcome}`),
         ),
       );
     }
@@ -409,6 +445,9 @@ $("think").addEventListener("click", async () => {
 });
 
 function renderMemory() {
+  const key = JSON.stringify([state.facts, state.watches]);
+  if (key === memoryKey) return; // keeps a half-done two-step delete as it is
+  memoryKey = key;
   const facts = $("facts");
   facts.replaceChildren();
   if (state.facts.length === 0) facts.append(h("p", { class: "none", text: "还不了解你。多聊几句，它会记下来。" }));

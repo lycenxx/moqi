@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Fix: in the console, the answer box of a question lost focus and what was typed every few seconds. The feed and memory lists are now rebuilt only when what they show changes, and a draft answer and its cursor survive a rebuild.
+
 ## [0.3.0] - 2026-11-20
 
 - Reflection: every two hours while the user is awake, and ten minutes after a conversation settles, moqi asks the model for up to three ideas: something to do (with a ready action), a question to know the user better (at most two a day; answers are learned from at once), or news that matters to them. Ideas are offers like everything else; only timely ones may interrupt, near-duplicates within a week are skipped, and small-model replies are read leniently.
