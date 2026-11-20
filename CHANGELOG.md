@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-20
+
 - Reflection: every two hours while the user is awake, and ten minutes after a conversation settles, moqi asks the model for up to three ideas: something to do (with a ready action), a question to know the user better (at most two a day; answers are learned from at once), or news that matters to them. Ideas are offers like everything else; only timely ones may interrupt, near-duplicates within a week are skipped, and small-model replies are read leniently.
 - Console: "moqi 在想" lists every idea and what became of it, with a "现在想一想" button; questions have an answer box; news links open the article. The address is now `http://moqi.localhost:6674` (MOQI on a phone keypad) and the browser remembers the key after the first visit.
 - News plugin: RSS and Atom feeds, a `news` tool for chat and watches, headlines for reflection. On by default with 少数派, IT之家 and Solidot, also for existing configs; `"news": { "feeds": [] }` turns it off.
