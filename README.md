@@ -1,6 +1,6 @@
 # moqi
 
-[![CI](https://github.com/wangcao-hub/moqi/actions/workflows/ci.yml/badge.svg)](https://github.com/wangcao-hub/moqi/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/moqi)](https://www.npmjs.com/package/moqi) [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+[![CI](https://github.com/wangcao-hub/moqi/actions/workflows/ci.yml/badge.svg)](https://github.com/wangcao-hub/moqi/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/moqi-agent)](https://www.npmjs.com/package/moqi-agent) [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
 **A personal agent you don't have to ask.** moqi (默契, "tacit understanding") learns you from everyday life, speaks up first when it matters, and gets better at both the more you use it.
 
@@ -22,10 +22,10 @@ The core is plain TypeScript with no Node-only APIs, so the same code runs on a 
 
 ## Quick start
 
-Requires Node.js 22 or later.
+Requires Node.js 22 or later. The npm package is `moqi-agent`; the command it installs is `moqi`.
 
 ```
-npm install -g moqi
+npm install -g moqi-agent
 moqi init        # writes ~/.moqi/config.json
 moqi             # chat, while moqi keeps an eye out in the background
 ```
@@ -51,8 +51,8 @@ Commands inside the chat: `/brief`, `/offers`, `/accept <id>`, `/dismiss <id>`, 
 A plugin contributes tools, a briefing section and work for each heartbeat. `effect: "read"` tools run freely and can be used by watches; `"write"` tools start at "ask first" and earn trust.
 
 ```ts
-import { defineTool, Moqi, type Plugin } from "moqi";
-import { weatherPlugin } from "moqi/plugins";
+import { defineTool, Moqi, type Plugin } from "moqi-agent";
+import { weatherPlugin } from "moqi-agent/plugins";
 
 const moqi = new Moqi({
   model,

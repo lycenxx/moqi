@@ -1,6 +1,6 @@
 # moqi（默契）
 
-[![CI](https://github.com/wangcao-hub/moqi/actions/workflows/ci.yml/badge.svg)](https://github.com/wangcao-hub/moqi/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/moqi)](https://www.npmjs.com/package/moqi) [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+[![CI](https://github.com/wangcao-hub/moqi/actions/workflows/ci.yml/badge.svg)](https://github.com/wangcao-hub/moqi/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/moqi-agent)](https://www.npmjs.com/package/moqi-agent) [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
 **不用开口就懂你的个人 agent。** 它从你的日常里了解你，在合适的时候先开口，越用越懂你。
 
@@ -22,10 +22,10 @@
 
 ## 快速开始
 
-需要 Node.js 22 或更高版本。
+需要 Node.js 22 或更高版本。npm 上的包名是 `moqi-agent`，装好后的命令是 `moqi`。
 
 ```
-npm install -g moqi
+npm install -g moqi-agent
 moqi init        # 在 ~/.moqi/config.json 写一份配置模板
 moqi             # 对话，并在后台替你留意
 ```
@@ -75,7 +75,7 @@ moqi：好，每天 22:00 替你提醒「早点睡」
 插件提供工具、简报里的一节，以及每次心跳时要做的事：
 
 ```ts
-import { defineTool, Moqi, type Plugin } from "moqi";
+import { defineTool, Moqi, type Plugin } from "moqi-agent";
 import { z } from "zod";
 
 const water: Plugin = {
