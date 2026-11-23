@@ -38,12 +38,12 @@
 
 只对命令参数里带 `@playwright/mcp` 的服务器生效，由 `mcp-client.ts` 在包装工具时读取。
 
-| 类别           | 工具                                                                                                                                                                                                             | 标记                         |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| 只看           | `browser_snapshot`、`browser_take_screenshot`、`browser_find`、`browser_console_messages`、`browser_network_requests`、`browser_network_request`                                                                 | 服务器标为只读，无需额外标记 |
-| 打开网址       | `browser_navigate`；带 `url` 的 `browser_tabs`                                                                                                                                                                   | `site: "goto"`               |
-| 在网站里走动   | `browser_click`、`browser_hover`、`browser_navigate_back`、`browser_select_option`、`browser_wait_for`、`browser_resize`、`browser_close`、`browser_drag`、`browser_emulate_media`、不带 `url` 的 `browser_tabs` | `site: "within"`             |
-| 会把东西发出去 | `browser_type`、`browser_fill_form`、`browser_press_key`、`browser_file_upload`、`browser_drop`、`browser_evaluate`、`browser_run_code_unsafe`、`browser_handle_dialog`                                          | 不加标记，按危险工具每次问   |
+| 类别           | 工具                                                                                                                                                                                             | 标记                         |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------- |
+| 只看           | `browser_snapshot`、`browser_take_screenshot`、`browser_find`、`browser_console_messages`、`browser_network_requests`、`browser_network_request`                                                 | 服务器标为只读，无需额外标记 |
+| 打开网址       | `browser_navigate`；带 `url` 的 `browser_tabs`                                                                                                                                                   | `site: "goto"`               |
+| 在网站里走动   | `browser_click`、`browser_hover`、`browser_navigate_back`、`browser_wait_for`、`browser_resize`、`browser_close`、`browser_drag`、`browser_emulate_media`、不带 `url` 的 `browser_tabs`          | `site: "within"`             |
+| 会把东西发出去 | `browser_type`、`browser_fill_form`、`browser_press_key`、`browser_file_upload`、`browser_drop`、`browser_select_option`、`browser_evaluate`、`browser_run_code_unsafe`、`browser_handle_dialog` | 不加标记，按危险工具每次问   |
 
 不在表里的写工具（以后新增的、`--caps` 打开的）不加标记，按危险工具每次问。
 
@@ -59,7 +59,7 @@
     - 主机名等于某个已授权的主机，或是它的子域名（`host.endsWith("." + granted)`）：不问，直接执行。
     - 否则问。问题：`要我打开 <主机名> 吗？`；`details`：`这一轮里在 <主机名> 上打开页面、点击、翻页不再问；输入文字、上传、执行脚本仍会问。` 空一行，再附完整网址。同意后把主机名加进 `sites`。
     - 网址解析不了或协议不对：不算授权范围，按危险工具问，`details` 里显示原样的参数。
-  - **在网站里走动**（`site: "within"`，或 `goto` 但没有 `url`）：`sites` 非空时不问；否则按原有规则。
+  - **在网站里走动**（`site: "within"`，或 `goto` 但没有 `url`）：浏览器当前所在页面的网站已授权时不问；否则按原有规则。当前页面取自带 `site` 的工具上一次结果里 Playwright 自己写的 `- Page URL:` 一行，只读页面内容（`### Snapshot`）之前的部分，网页上的文字冒充不了。读不到时算不在授权网站上。
 - 授权是用户这一轮的明确同意，所以对授权范围内的动作，`tainted` 不会让它再问。
 - 用户在设置里把这个工具改成 `auto` 或 `normal` 时，网站授权不再适用，按安全底座的规则走。
 - 没有 `sites` 的调用（接受提议、托管事务、控制台直接调用）不适用网站授权。
@@ -166,3 +166,11 @@
 - 不开放任意 AppleScript 或 shell。
 - 不做 Windows。
 - 托管事务不能调用写工具（沿用现状）。
+
+## 11. 补充：独立检查后的修正（2026-11-23）
+
+- **"在网站里走动"看当前页面**：只有浏览器当前所在的网站已授权时才不问。当前网站取自浏览器工具结果里 Playwright 自己写的 `- Page URL:` 一行（只读 `### Snapshot` 之前的部分）。浏览器的任何工具都会更新它，比如按回车可能提交表单、跳到别处；带 `site` 的工具结果里没写网址时，算不知道在哪，下一步照常问。所以点击跳到授权以外的网站、切到上一轮留下的标签页、后退回别的网站，下一步都会问。
+- **`browser_select_option` 改为每次都问**：它是用模型选的值填表单，和填表同类。
+- **主机名带端口**：`localhost:3000` 和 `localhost:4567` 算两个网站；只有一段的主机名（`localhost`、`com`）不覆盖子域名。公共后缀（如 `github.io`）仍按普通域名处理，确认框里显示的主机名就是会被授权的范围。
+- **移动和改名不会覆盖**：普通文件先建硬链接到目标（名字已被占用时直接失败，哪怕检查之后刚有文件落地），再删掉原来的链接；不支持硬链接的磁盘退回为"再查一次再改名"。文件夹仍用改名，改名最多替换一个空文件夹，不会丢东西。
+- **确认框写出链接指向哪里**：路径中途经过符号链接时，问题里写成 `~/Downloads/a-link（链接，实际是 ~/Desktop/重要资料）`。

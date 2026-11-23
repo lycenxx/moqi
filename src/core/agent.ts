@@ -3,6 +3,7 @@ import { activeFacts, OUTSIDE, promptSection } from "./memory.js";
 import type { ChatMessage } from "./model.js";
 import type { Moqi } from "./moqi.js";
 import { toolSpec } from "./plugin.js";
+import type { SiteGrant } from "./sites.js";
 import { studySection } from "./study.js";
 import type { MoqiEvent } from "./types.js";
 
@@ -53,7 +54,7 @@ export async function chatTurn(
   // Once this turn has read anything from outside moqi, a dangerous action is asked again, unlocked or not.
   // A memory another agent wrote is in the prompt, so it counts from the start.
   let tainted = how.fromAgent === true || activeFacts(moqi.state, moqi.clock.now()).some((f) => f.by !== undefined);
-  const sites = new Set<string>(); // sites the user agreed to open in this turn
+  const sites: SiteGrant = { granted: new Set() }; // sites the user agreed to open in this turn
   let answer = "";
   for (let round = 0; round <= AGENT.maxToolRounds; round++) {
     const reply = await model.chat({

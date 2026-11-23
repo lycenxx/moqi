@@ -40,7 +40,7 @@ export { type Decision, decide, defaultPolicy, inQuietHours, type Policy } from 
 export { gatherContext, IDEA_KIND, REFLECT, reflect } from "./reflect.js";
 export { findRoutines, ROUTINE, type Routine } from "./routines.js";
 export { dayKey, describeSchedule, minuteOfDay, nextRun, parseTime, validateSchedule } from "./schedule.js";
-export { hostOf, type SiteRole, siteDecision } from "./sites.js";
+export { hostOf, pageHost, type SiteGrant, type SiteRole, siteDecision } from "./sites.js";
 export { type KindStats, type OfferRecord, RULES, State, type Study, type Thought, type Trust } from "./state.js";
 export { lessonsDue, STUDY, study, studySection } from "./study.js";
 export * from "./todo.js";

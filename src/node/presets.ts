@@ -30,7 +30,6 @@ export const PLAYWRIGHT_SITES: Readonly<Record<string, SiteRole>> = {
   browser_click: "within",
   browser_hover: "within",
   browser_navigate_back: "within",
-  browser_select_option: "within",
   browser_wait_for: "within",
   browser_resize: "within",
   browser_close: "within",

@@ -8,7 +8,7 @@ import { decide, defaultPolicy, inQuietHours, type Policy } from "./proactive.js
 import { REFLECT, reflect } from "./reflect.js";
 import { findRoutines } from "./routines.js";
 import { dayKey, describeSchedule, minuteOfDay, nextRun, parseTime } from "./schedule.js";
-import { siteDecision } from "./sites.js";
+import { pageHost, type SiteGrant, siteDecision } from "./sites.js";
 import { State } from "./state.js";
 import { STUDY, studiedOn, study } from "./study.js";
 import { dueReminders, findRepeatedTodos, reminderOffer, reviewOffer, TODO, TODO_KIND } from "./todo.js";
@@ -71,6 +71,8 @@ export class Moqi {
   private readonly tools = new Map<string, Tool>();
   private readonly background = new Set<Promise<unknown>>();
   private readonly sources = new Map<string, string>();
+  /** Where web tools come from: every tool of such a source reports which page the browser is on. */
+  private readonly browsers = new Set<string>();
   private thinking: Promise<Idea[]> | undefined;
   private studying: Promise<number> | undefined;
   private readonly options: MoqiOptions;
@@ -101,6 +103,7 @@ export class Moqi {
       if (this.tools.has(tool.name)) throw new Error(`Two tools are named "${tool.name}"`);
       this.tools.set(tool.name, tool);
       this.sources.set(tool.name, source);
+      if (tool.site) this.browsers.add(source);
     }
   }
 
@@ -272,7 +275,7 @@ export class Moqi {
   async callTool(
     name: string,
     args: Record<string, unknown>,
-    how: { byUser: boolean; preApproved?: boolean; tainted?: boolean; sites?: Set<string> },
+    how: { byUser: boolean; preApproved?: boolean; tainted?: boolean; sites?: SiteGrant },
   ): Promise<string> {
     const tool = this.tools.get(name);
     if (!tool) return `没有工具 ${name}`;
@@ -297,7 +300,7 @@ export class Moqi {
       );
       this.emit({ type: "approval", kind: name, approved });
       if (!approved) return "用户没有同意，这一步没做";
-      how.sites?.add(site.host);
+      how.sites?.granted.add(site.host);
     } else if (!site) {
       // A dangerous action is confirmed with exactly what it does, even when an offer was accepted:
       // the offer's words are the model's and may not match its action.
@@ -323,6 +326,13 @@ export class Moqi {
     let text: string;
     try {
       text = resultText(await tool.run(parsed.data, ctx));
+      // Where the browser ended up decides whether the next move on the page needs asking. Any tool of the
+      // browser may move it (typing Enter submits a form); a site tool that does not say where it is leaves
+      // the page unknown, so the next move asks.
+      if (how.sites && this.browsers.has(this.sourceOf(name))) {
+        const host = pageHost(text);
+        if (host || tool.site) how.sites.current = host;
+      }
       this.emit({ type: "tool.called", tool: name, args, byUser: how.byUser, ok: true });
     } catch (error) {
       this.emit({ type: "tool.called", tool: name, args, byUser: how.byUser, ok: false });

@@ -5,6 +5,7 @@
 import { execFile } from "node:child_process";
 import {
   closeSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -13,6 +14,7 @@ import {
   realpathSync,
   renameSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -87,6 +89,25 @@ export function filesPlugin(options: FilesOptions): Plugin {
     const real = existing(p);
     if (isRoot(real)) throw new Problem(`${show(real)} 是允许的文件夹本身，不能${verb}`);
     return real;
+  };
+  /**
+   * A path as the user should see it in a question, with where it really is when a symlink inside the folders
+   * stands in between (a link to another folder would move all of that folder).
+   */
+  const named = (p: string) => {
+    try {
+      const abs = absolute(p);
+      const real = realpathSync(abs);
+      const linked = `${show(abs)}（链接，实际是 ${show(real)}）`;
+      for (const folder of options.folders) {
+        const given = resolve(expandHome(folder));
+        if (abs === given || abs.startsWith(given + sep))
+          return real === realpathSync(given) + abs.slice(given.length) ? show(abs) : linked;
+      }
+      return lstatSync(abs).isSymbolicLink() ? linked : show(abs);
+    } catch {
+      return p;
+    }
   };
   const destination = (from: string, to: string) => {
     const src = movable(from, "移动");
@@ -211,12 +232,12 @@ export function filesPlugin(options: FilesOptions): Plugin {
         input: z.object({ from: z.string(), to: z.string() }),
         effect: "write",
         local: true,
-        describe: ({ from, to }) => `把 ${from} 移到 ${to}`,
+        describe: ({ from, to }) => `把 ${named(from)} 移到 ${to}`,
         validate: ({ from, to }) => check(() => destination(from, to)),
         run: ({ from, to }) => {
           const { src, dest } = destination(from, to);
           try {
-            renameSync(src, dest);
+            moveAside(src, dest);
           } catch (error) {
             throw friendly(error, ` ${show(dest)}`);
           }
@@ -229,7 +250,7 @@ export function filesPlugin(options: FilesOptions): Plugin {
         input: z.object({ path: z.string(), name: z.string().describe("The new name, without a folder") }),
         effect: "write",
         local: true,
-        describe: ({ path, name }) => `把 ${path} 改名为 ${name}`,
+        describe: ({ path, name }) => `把 ${named(path)} 改名为 ${name}`,
         validate: ({ path, name }) =>
           check(() => {
             const src = movable(path, "改名");
@@ -242,7 +263,7 @@ export function filesPlugin(options: FilesOptions): Plugin {
           const dest = join(dirname(src), name);
           if (taken(dest)) throw new Error(`已经有同名的 ${name}，不会覆盖`);
           try {
-            renameSync(src, dest);
+            moveAside(src, dest);
           } catch (error) {
             throw friendly(error, ` ${show(dest)}`);
           }
@@ -256,7 +277,7 @@ export function filesPlugin(options: FilesOptions): Plugin {
         effect: "write",
         danger: true,
         source: "文件",
-        describe: ({ path }) => `把 ${path} 移到废纸篓`,
+        describe: ({ path }) => `把 ${named(path)} 移到废纸篓`,
         validate: ({ path }) => check(() => movable(path, "移到废纸篓")),
         run: async ({ path }) => {
           const src = movable(path, "移到废纸篓");
@@ -280,6 +301,30 @@ function check(fn: () => unknown): string | undefined {
 function checkName(name: string): void {
   if (!name || name === "." || name === ".." || name.includes("/") || name.includes("\0"))
     throw new Problem(`「${name}」不能用作文件名`);
+}
+
+/**
+ * Moves without ever replacing what is at `dest`: a file is hard-linked there first, which fails if the name
+ * is taken even when something lands there a moment before, then unlinked from where it was. A folder is
+ * renamed; rename can only replace an empty folder, which loses nothing.
+ */
+function moveAside(src: string, dest: string): void {
+  if (lstatSync(src).isDirectory()) {
+    renameSync(src, dest);
+    return;
+  }
+  try {
+    linkSync(src, dest);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    // Some disks (FAT, exFAT) have no hard links: check once more and rename.
+    if ((code === "EPERM" || code === "ENOTSUP" || code === "EOPNOTSUPP") && !taken(dest)) {
+      renameSync(src, dest);
+      return;
+    }
+    throw error;
+  }
+  unlinkSync(src);
 }
 
 function taken(path: string): boolean {

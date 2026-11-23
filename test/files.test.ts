@@ -71,6 +71,14 @@ describe("files", () => {
     expect(f.details.at(-1)).toMatch(/^这是会改动东西的动作，每次都要你确认。/);
   });
 
+  it("names the real place behind a symlink when it asks", async () => {
+    const f = setup();
+    mkdirSync(join(f.desktop, "重要资料"));
+    symlinkSync(join(f.desktop, "重要资料"), join(f.downloads, "a-link"));
+    await f.run("files_trash", { path: join(f.downloads, "a-link") });
+    expect(f.asked.at(-1)).toMatch(/a-link（链接，实际是 .*重要资料）/);
+  });
+
   it("keeps the allowed folders themselves in place, and only listing runs on a schedule", async () => {
     const f = setup();
     expect(await f.run("files_trash", { path: f.downloads })).toMatch(/允许的文件夹本身/);

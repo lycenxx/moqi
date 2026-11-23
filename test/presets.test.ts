@@ -27,6 +27,7 @@ describe("the browser preset", () => {
     for (const sending of [
       "browser_type",
       "browser_fill_form",
+      "browser_select_option",
       "browser_press_key",
       "browser_file_upload",
       "browser_evaluate",
