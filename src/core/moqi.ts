@@ -322,7 +322,7 @@ export class Moqi {
   async callTool(
     name: string,
     args: Record<string, unknown>,
-    how: { byUser: boolean; preApproved?: boolean; tainted?: boolean; sites?: SiteGrant },
+    how: { byUser: boolean; preApproved?: boolean; confirmed?: boolean; tainted?: boolean; sites?: SiteGrant },
   ): Promise<string> {
     const tool = this.tools.get(name);
     if (!tool) return `没有工具 ${name}`;
@@ -358,9 +358,11 @@ export class Moqi {
         this.emit({ type: "site.remembered", host: site.host });
     } else if (!site) {
       // A dangerous action is confirmed with exactly what it does, even when an offer was accepted:
-      // the offer's words are the model's and may not match its action.
-      const offered = how.preApproved === true && guard;
-      const preApproved = how.preApproved === true && !guard;
+      // the offer's words are the model's and may not match its action. `confirmed`: the user tapped this
+      // very action on a card moqi itself made, so there is nothing left to show them.
+      const confirmed = how.preApproved === true && how.confirmed === true;
+      const offered = how.preApproved === true && guard && !confirmed;
+      const preApproved = how.preApproved === true && (!guard || confirmed);
       const tainted = how.tainted === true || offered;
       const asked = !preApproved && needsConfirmation(this.state, name, policy, tainted);
       if (asked || preApproved) {
@@ -464,9 +466,25 @@ export class Moqi {
       return this.callTool("resolve_conflict", { ...offer.action.args, keep }, { byUser: true, preApproved: true });
     }
     if (verdict === "accepted" && offer.action)
-      return this.callTool(offer.action.tool, offer.action.args, { byUser: true, preApproved: true });
+      return this.callTool(offer.action.tool, offer.action.args, {
+        byUser: true,
+        preApproved: true,
+        ...(this.ownMerge(offer) && { confirmed: true }),
+      });
     if (verdict === "muted") return `以后不再提「${offer.kind}」这类事（/unmute ${offer.kind} 恢复）`;
     return "好";
+  }
+
+  /** moqi's own "done" card for a coding task, whose merge the user tapped: nothing about it came from a model. */
+  private ownMerge(offer: Offer): boolean {
+    const id = offer.action?.args.id;
+    const status = typeof id === "string" ? this.state.codeTasks.get(id)?.status : undefined;
+    return (
+      offer.kind === "code.done" &&
+      offer.action?.tool === "code_merge" &&
+      offer.about === id &&
+      (status === "done" || status === "failed")
+    );
   }
 
   unmute(kind: string): void {
