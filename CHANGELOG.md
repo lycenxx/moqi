@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Fewer questions: a site can be allowed for good ("以后都允许"), after which opening, clicking and paging there are not asked (typing, forms, uploads and scripts still are); remembered sites are listed in Settings and can be removed. Ordinary actions (new folder, new file, move, rename, clipboard, watches, removing todos) can be set to run without asking in Settings. Merging a finished coding task takes one tap on its card, which names the branch. Browser tools set to "放开" keep to the sites already granted after reading a page, instead of asking at every click. In `moqi chat`, `a` answers "以后都允许".
+
 ## [0.6.1] - 2026-11-23
 
 - Fix: an MCP server that exited or closed its input right after starting could crash moqi with `EPIPE`; it is now marked failed. A macOS command that exits without reading its input no longer crashes moqi either.
