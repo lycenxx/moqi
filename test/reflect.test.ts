@@ -74,6 +74,40 @@ describe("reflection", () => {
     expect(thought?.ideas.every((i) => i.offerId)).toBe(true);
   });
 
+  it("hears a todo in conversation and offers to put it on the list, unless it is there already", async () => {
+    const model = scriptedModel(() =>
+      ideas(
+        {
+          type: "serve",
+          title: "要我明天 14:00 提醒你交报告吗？",
+          value: 0.7,
+          todo: { text: "交报告", day: "tomorrow", at: "14:00" },
+        },
+        { type: "serve", title: "要我记下买牛奶吗？", value: 0.5, todo: { text: "买牛奶", at: null } },
+        { type: "serve", title: "早上 7 点提醒你开会？", value: 0.5, todo: { text: "开会", at: "07:00" } },
+      ),
+    );
+    const { moqi } = harness({ model }); // 08:20
+    await moqi.callTool("todo_add", { text: "买牛奶" }, { byUser: true });
+
+    const result = await moqi.reflect("user");
+    expect(result.map((i) => i.skipped ?? "")).toEqual(["", "待办里已经有了", ""]);
+    const offers = [...moqi.state.offers.values()].map((r) => r.offer);
+    const capture = offers.find((o) => o.kind === "todo.capture");
+    expect(capture?.action).toEqual({
+      tool: "todo_add",
+      args: { text: "交报告", day: "tomorrow", at: "14:00", by: "moqi" },
+    });
+    // 07:00 has passed today: it stays a plain suggestion without a broken action.
+    const past = offers.find((o) => o.title === "早上 7 点提醒你开会？");
+    expect(past).toMatchObject({ kind: IDEA_KIND.serve });
+    expect(past?.action).toBeUndefined();
+
+    await moqi.feedback(capture?.id as string, "accepted");
+    expect([...moqi.state.todos.values()].find((t) => t.text === "交报告")).toMatchObject({ by: "moqi" });
+    expect(String(model.requests[0]?.messages[1]?.content)).toContain("## 用户的待办\n今天：\n- 买牛奶");
+  });
+
   it("understands a bare idea or a bare list from a small model, and finds the article it meant", async () => {
     const replies = [
       JSON.stringify({ type: "world", title: "深圳明天暴雨，出门带伞", value: 0.8 }),

@@ -9,6 +9,7 @@ import type { Moqi } from "./moqi.js";
 import { type OfferInput, type Plugin, toolSpec } from "./plugin.js";
 import { dayKey, describeSchedule } from "./schedule.js";
 import { studySection } from "./study.js";
+import { openTodos, TODO_KIND, todoContext } from "./todo.js";
 import type { Idea, IdeaType } from "./types.js";
 
 export const REFLECT = {
@@ -36,6 +37,7 @@ const IdeaFields = z.object({
   value: z.coerce.number().min(0).max(1).catch(0.5),
   timely: z.boolean().catch(false).default(false),
   watch: z.record(z.string(), z.unknown()).nullish(),
+  todo: z.record(z.string(), z.unknown()).nullish(),
   refs: z
     .union([z.string().transform((r) => [r]), z.array(z.string()).max(8)])
     .catch([])
@@ -52,6 +54,7 @@ const RawIdea = z.preprocess((v) => {
 const SYSTEM = `你是 moqi（默契），用户的个人助理。现在不是在和用户对话，是你自己在想：根据你对用户的了解和眼下的情况，有什么能主动替 TA 做的、需要了解 TA 的、值得告诉 TA 的。
 最多 3 个点子，宁缺毋滥。三类：
 - serve：替用户做一件具体的事。能定时替 TA 盯着的（查天气、新闻、日程，或到点提醒）就填 watch，用户点一下就办好；watch 的格式和「可以用来盯着的工具」一节一致。
+- 用户在对话里提到自己要做、但「用户的待办」里还没有的事（比如"明天下午要交报告"），出一个 serve，title 写成一句问话，填 todo：{"text":"交报告","day":"tomorrow","at":"14:00"}；day 填 today、tomorrow 或 YYYY-MM-DD，没说时间就不填 at。
 - ask：问用户一个问题，好在以后帮得更准。一次只问一件事，口语、简短；body 说一句为什么问。不要问档案里已有的，不要问收入、病情、密码这类隐私。
 - world：从「眼下的情况」里挑和用户有关的外部信息，title 写成一句告诉 TA 的话，refs 填条目编号（如 n3），只能用给出的编号。
 value 是这件事值得占用用户多少注意力（0 到 1）：和 TA 明确相关、今天就用得上的才高于 0.6。
@@ -95,10 +98,15 @@ export async function reflect(moqi: Moqi, trigger: "timer" | "chat" | "user", si
     if (!parsed.success) continue;
     const idea = parsed.data;
     const value = Math.min(REFLECT.maxValue, idea.value);
-    const kind = IDEA_KIND[idea.type];
+    const todo = idea.type === "serve" && idea.todo ? todoArgs(moqi, idea.todo) : undefined;
+    const kind = todo ? TODO_KIND.capture : IDEA_KIND[idea.type];
     const base = { type: idea.type, title: idea.title, value } as const;
     if (repeated(moqi, kind, idea.title, now)) {
       ideas.push({ ...base, skipped: "最近提过" });
+      continue;
+    }
+    if (todo && alreadyListed(moqi, String(todo.text))) {
+      ideas.push({ ...base, skipped: "待办里已经有了" });
       continue;
     }
     if (idea.type === "ask" && asked >= questionsLeft) {
@@ -117,6 +125,8 @@ export async function reflect(moqi: Moqi, trigger: "timer" | "chat" | "user", si
     if (idea.type === "ask") {
       offer = { ...input, urgency: "whenever", answer: "text" };
       asked++;
+    } else if (todo) {
+      offer = { ...input, action: { tool: "todo_add", args: todo } };
     } else if (idea.type === "serve" && idea.watch) {
       // Only an action that would actually work is offered; otherwise the idea stays a suggestion.
       if (!moqi.checkTool("watch_create", idea.watch)) {
@@ -182,6 +192,25 @@ function commonRun(a: string, b: string): number {
     }
   }
   return best;
+}
+
+/** A todo the model heard in conversation, as todo_add arguments; undefined when it would not work. */
+function todoArgs(moqi: Moqi, raw: Record<string, unknown>): Record<string, unknown> | undefined {
+  const args: Record<string, unknown> = { by: "moqi" };
+  for (const key of ["text", "day", "at", "inMinutes"]) {
+    const v = raw[key];
+    if (v !== null && v !== undefined && v !== "") args[key] = v;
+  }
+  return moqi.checkTool("todo_add", args) ? undefined : args;
+}
+
+/** The same todo is already on the list, or nearly: "交报告" and "交季度报告". */
+function alreadyListed(moqi: Moqi, text: string): boolean {
+  const key = normalize(text);
+  return openTodos(moqi.state).some((t) => {
+    const other = normalize(t.text);
+    return other === key || commonRun(key, other) >= Math.max(2, 0.6 * Math.min(key.length, other.length));
+  });
 }
 
 /** The same idea again, or nearly: "深圳小雨提醒" after "深圳小雨，记得带伞". */
@@ -251,6 +280,7 @@ function briefOf(moqi: Moqi, now: number, situation: string, questionsLeft: numb
     `## 最近的对话\n${messages.join("\n") || "（还没聊过）"}`,
     `## 眼下的情况\n${situation || "（没有接入信息源）"}`,
     `## 正在替用户盯着的事\n${watches.join("\n") || "（没有）"}`,
+    `## 用户的待办\n${todoContext(moqi.state, now)}`,
     `## 用户对之前提议的反应\n${reactions.join("\n") || "（还没有）"}${muted.length ? `\n关掉了：${muted.join("、")}` : ""}`,
     `## 可以用来盯着的工具（watch.tool 只能填这些；不填 tool 就填 remind，做成到点提醒）\n${tools.join("\n") || "（没有）"}`,
     `今天还能问 ${questionsLeft} 个问题${questionsLeft === 0 ? "，这次不要出 ask" : ""}。${

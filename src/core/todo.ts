@@ -243,3 +243,14 @@ export function todoSection(state: State, now: number): BriefingSection | undefi
   const open = todayTodos(state, now);
   return open.length ? { title: "今天要做", lines: open.map((t) => describeTodo(t, now)) } : undefined;
 }
+
+/** The todo list as reflection sees it. */
+export function todoContext(state: State, now: number): string {
+  const line = (t: Todo) => `- ${describeTodo(t, now)}${t.by === "moqi" ? "（你听出来的）" : ""}`;
+  const today = todayTodos(state, now).map(line);
+  const later = laterTodos(state, now).slice(0, 5).map(line);
+  if (today.length + later.length === 0) return "（没有）";
+  return [`今天：\n${today.join("\n") || "（没有）"}`, later.length ? `以后：\n${later.join("\n")}` : ""]
+    .filter(Boolean)
+    .join("\n");
+}
