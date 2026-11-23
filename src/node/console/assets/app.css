@@ -471,6 +471,10 @@ select.policy {
   gap: 12px;
 }
 
+#sites:not(:empty) {
+  margin: 4px 0 20px;
+}
+
 .card {
   padding: 16px;
   border: 1px solid var(--border);

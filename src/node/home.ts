@@ -7,7 +7,7 @@ import type { CodeRunner } from "../core/code.js";
 import { openAICompatible } from "../core/model.js";
 import { Moqi, type MoqiOptions } from "../core/moqi.js";
 import type { Plugin } from "../core/plugin.js";
-import type { EventStore, Offer, Surface } from "../core/types.js";
+import type { Answer, EventStore, Offer, Surface } from "../core/types.js";
 import { a2aPlugin } from "../plugins/a2a.js";
 import { calendarPlugin } from "../plugins/calendar.js";
 import { newsPlugin } from "../plugins/news.js";
@@ -20,6 +20,13 @@ import { filesPlugin } from "./files.js";
 import { macPlugin } from "./mac.js";
 import { McpHub, type McpServerStatus } from "./mcp-client.js";
 import { desktopNotifier, type Notifier } from "./notify.js";
+
+/** A typed answer to a question in the terminal. "a" means "以后都允许", only where the question offers it. */
+export function terminalAnswer(line: string, always: boolean): Answer {
+  const text = line.trim();
+  if (always && /^(a|always|以后都允许)$/i.test(text)) return "always";
+  return /^(y|yes|好|是|可以)/i.test(text);
+}
 
 export interface HomeOptions {
   readonly home: string;

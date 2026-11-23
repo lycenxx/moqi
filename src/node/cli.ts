@@ -11,7 +11,7 @@ import { moqiHome, writeTemplate } from "./config.js";
 import { a2aKeyFor, consoleAddress, consoleToken, runningConsole, writeConsoleInfo } from "./console/info.js";
 import { confirmQueue, DEFAULT_PORT, startConsole } from "./console/server.js";
 import { lockHolder } from "./file-store.js";
-import { type Home, openHome } from "./home.js";
+import { type Home, openHome, terminalAnswer } from "./home.js";
 import { type MoqiLink, serveMcp } from "./mcp.js";
 
 const HELP = `moqi — 不用开口就懂你的个人 agent
@@ -140,9 +140,10 @@ async function interactive(): Promise<void> {
   const home = openHome({
     home: moqiHome(),
     onDeliver: (offer, surface) => print(show(offer, surface)),
-    confirm: async (question, details) => {
+    confirm: async (question, details, choices) => {
       if (details) console.log(details);
-      return /^(y|yes|好|是|可以)/i.test(((await input.next(`${question} [y/N] `)) ?? "").trim());
+      const line = (await input.next(`${question} ${choices ? "[y/N/a]" : "[y/N]"} `)) ?? "";
+      return terminalAnswer(line, choices !== undefined);
     },
   });
   const stop = heartbeat(home, (e) => print(`（后台出错：${e instanceof Error ? e.message : String(e)}）`));
@@ -216,7 +217,7 @@ async function daemon(): Promise<void> {
   const home = openHome({
     home: dir,
     onDeliver: (o, s) => console.log(show(o, s)),
-    confirm: (q, d) => asker.ask(q, d),
+    confirm: (q, d, c) => asker.ask(q, d, c),
   });
   const stopBeat = heartbeat(home, (e) => console.error(`moqi: ${e instanceof Error ? e.message : String(e)}`));
   const token = consoleToken(dir);

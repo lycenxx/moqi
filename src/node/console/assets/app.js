@@ -244,23 +244,26 @@ function renderAsk() {
   $("ask-details").textContent = q.details || "";
   $("ask-details").hidden = !q.details;
   $("ask").dataset.id = q.id;
+  $("ask-always").hidden = !q.always;
+  $("ask-always").textContent = q.always || "";
   if (view !== "chat" && toldAbout !== q.id) {
     toldAbout = q.id;
     toast("moqi 有件事想问你，在「对话」里");
   }
 }
 
-async function answer(yes) {
+async function answer(yes, always = false) {
   const id = $("ask").dataset.id;
   $("ask").hidden = true;
   try {
-    await api("POST", "/api/confirm", { id, yes });
+    await api("POST", "/api/confirm", { id, yes, always });
   } catch (error) {
     toast(error.message);
   }
   refresh();
 }
 $("ask-yes").addEventListener("click", () => answer(true));
+$("ask-always").addEventListener("click", () => answer(true, true));
 $("ask-no").addEventListener("click", () => answer(false));
 
 function renderCode() {
@@ -399,7 +402,12 @@ function offerCard(o) {
         "div",
         { class: "actions" },
         changed && open
-          ? h("button", { type: "button", class: "btn primary", text: "合并", onclick: respond("accepted") })
+          ? h("button", {
+              type: "button",
+              class: "btn primary",
+              text: task.into ? `合并到 ${task.into}` : "合并",
+              onclick: respond("accepted"),
+            })
           : null,
         changed ? h("button", { type: "button", class: "btn", text: "看改动", onclick: look }) : null,
         h("span", { class: "spacer" }),
@@ -1133,7 +1141,7 @@ const POLICY_LABEL = { ask: "每次都问", auto: "放开（读过外部内容�
 async function loadDangerTools() {
   const list = $("danger-tools");
   try {
-    const { tools } = await api("GET", "/api/tools");
+    const { tools, ordinary, sites } = await api("GET", "/api/tools");
     list.replaceChildren();
     if (tools.length === 0) list.append(h("p", { class: "none", text: "现在没有会改动东西的外来工具。" }));
     for (const t of tools) {
@@ -1167,8 +1175,70 @@ async function loadDangerTools() {
         ),
       );
     }
+    renderOrdinary(ordinary);
+    renderSites(sites);
   } catch (error) {
     list.replaceChildren(h("p", { class: "none", text: error.message }));
+  }
+}
+
+const LEVEL_LABEL = { ask: "先问我", auto: "直接办，办完告诉你" };
+
+function renderOrdinary(tools) {
+  const list = $("ordinary-tools");
+  list.replaceChildren();
+  for (const t of tools) {
+    const select = h(
+      "select",
+      { class: "policy", "aria-label": `${t.label} 怎么处理` },
+      Object.entries(LEVEL_LABEL).map(([value, text]) => h("option", { value, text })),
+    );
+    select.value = t.level;
+    select.addEventListener("change", async () => {
+      select.disabled = true;
+      try {
+        toast((await api("POST", "/api/tool-level", { tool: t.name, level: select.value })).message);
+      } catch (error) {
+        toast(error.message);
+        select.value = t.level;
+      }
+      select.disabled = false;
+    });
+    list.append(
+      h(
+        "div",
+        { class: "item" },
+        h(
+          "div",
+          { class: "item-main" },
+          h("p", { class: "item-text", text: t.label }),
+          h("p", { class: "item-meta", text: `${t.name} · 来自 ${t.source}` }),
+        ),
+        select,
+      ),
+    );
+  }
+}
+
+function renderSites(sites) {
+  const list = $("sites");
+  list.replaceChildren();
+  if (sites.length === 0) return;
+  list.append(h("p", { class: "item-meta", text: "记住的网站：打开、点击、翻页不再问" }));
+  for (const host of sites) {
+    const remove = h("button", { type: "button", class: "btn", text: "移除", "aria-label": `移除 ${host}` });
+    remove.addEventListener("click", async () => {
+      remove.disabled = true;
+      try {
+        toast((await api("POST", "/api/site/forget", { host })).message);
+      } catch (error) {
+        toast(error.message);
+      }
+      loadDangerTools();
+    });
+    list.append(
+      h("div", { class: "item" }, h("div", { class: "item-main" }, h("p", { class: "item-text", text: host })), remove),
+    );
   }
 }
 

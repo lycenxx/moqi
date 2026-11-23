@@ -11,7 +11,7 @@ import { FACT_KINDS, isFaded } from "../../core/memory.js";
 import { openAICompatible } from "../../core/model.js";
 import { describeSchedule } from "../../core/schedule.js";
 import { daysLate, laterTodos, recentlyDone, todayTodos } from "../../core/todo.js";
-import type { FactKind, Todo, Urgency, Verdict } from "../../core/types.js";
+import type { Answer, Choices, FactKind, Todo, Urgency, Verdict } from "../../core/types.js";
 import { parseIcs } from "../../plugins/calendar.js";
 import { NEWS_FEEDS } from "../../plugins/news.js";
 import { connectAgent, disconnectAgent, findAgents, importableServers } from "../agents.js";
@@ -33,13 +33,26 @@ const VERDICT_WORDS = {
   muted: "你关掉了这类",
 } as const;
 const ANSWER_TIMEOUT_MS = 5 * 60_000;
+/** How the settings page names moqi's own ordinary write tools; others show their tool name. */
+const ORDINARY_LABELS: Record<string, string> = {
+  files_mkdir: "新建文件夹",
+  files_write_new: "新建文件",
+  files_move: "移动文件",
+  files_rename: "改名",
+  mac_clipboard_write: "写剪贴板",
+  watch_create: "新建盯梢",
+  watch_cancel: "取消盯梢",
+  todo_remove: "删除待办",
+};
 
 /** Questions moqi asks before an action it has not earned trust for, answered from the page. */
 export interface Asker {
-  /** `details`: exactly what a dangerous action would do, shown under the question. */
-  ask(question: string, details?: string): Promise<boolean>;
-  pending(): { readonly id: string; readonly text: string; readonly details?: string } | undefined;
-  answer(id: string, yes: boolean): boolean;
+  ask(question: string, details?: string, choices?: Choices): Promise<Answer>;
+  pending():
+    | { readonly id: string; readonly text: string; readonly details?: string; readonly always?: string }
+    | undefined;
+  /** `always`: the user pressed the question's "do not ask again" button; ignored when it offers none. */
+  answer(id: string, yes: boolean, always?: boolean): boolean;
 }
 
 export function confirmQueue(timeoutMs = ANSWER_TIMEOUT_MS): Asker {
@@ -48,33 +61,46 @@ export function confirmQueue(timeoutMs = ANSWER_TIMEOUT_MS): Asker {
         id: string;
         text: string;
         details?: string;
-        resolve: (yes: boolean) => void;
+        always?: string;
+        resolve: (answer: Answer) => void;
         timer: ReturnType<typeof setTimeout>;
       }
     | undefined;
   let n = 0;
-  const settle = (yes: boolean) => {
+  const settle = (answer: Answer) => {
     if (!current) return;
     clearTimeout(current.timer);
     const { resolve } = current;
     current = undefined;
-    resolve(yes);
+    resolve(answer);
   };
   return {
-    ask(text, details) {
+    ask(text, details, choices) {
       settle(false); // only one question at a time; an unanswered one counts as "no"
       return new Promise((resolve) => {
         const timer = setTimeout(() => settle(false), timeoutMs);
-        current = { id: `q${++n}`, text, ...(details !== undefined && { details }), resolve, timer };
+        current = {
+          id: `q${++n}`,
+          text,
+          ...(details !== undefined && { details }),
+          ...(choices && { always: choices.always }),
+          resolve,
+          timer,
+        };
       });
     },
     pending: () =>
       current
-        ? { id: current.id, text: current.text, ...(current.details !== undefined && { details: current.details }) }
+        ? {
+            id: current.id,
+            text: current.text,
+            ...(current.details !== undefined && { details: current.details }),
+            ...(current.always !== undefined && { always: current.always }),
+          }
         : undefined,
-    answer(id, yes) {
+    answer(id, yes, always = false) {
       if (current?.id !== id) return false;
-      settle(yes);
+      settle(yes && always && current.always !== undefined ? "always" : yes);
       return true;
     },
   };
@@ -283,6 +309,7 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
             startedAt: t.task.startedAt,
             branch: t.task.branch,
             files: t.files?.length ?? 0,
+            ...((t.status === "done" || t.status === "failed") && { into: home.code.currentBranch(t.task.project) }),
           })),
         thoughts,
       };
@@ -486,7 +513,8 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
     },
 
     "POST /api/confirm": (body) => {
-      if (!asker.answer(str(body.id, "id"), body.yes === true)) throw new HttpError(409, "这个问题已经过期了");
+      if (!asker.answer(str(body.id, "id"), body.yes === true, body.always === true))
+        throw new HttpError(409, "这个问题已经过期了");
       return { ok: true };
     },
 
@@ -532,7 +560,11 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       return { message };
     },
 
-    "GET /api/tools": () => ({ tools: home.moqi.dangerousTools() }),
+    "GET /api/tools": () => ({
+      tools: home.moqi.dangerousTools(),
+      ordinary: home.moqi.ordinaryTools().map((t) => ({ ...t, label: ORDINARY_LABELS[t.name] ?? t.name })),
+      sites: home.moqi.rememberedSites(),
+    }),
 
     "POST /api/tool-policy": async (body) => {
       const name = str(body.tool, "tool");
@@ -543,6 +575,21 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       return {
         message: await home.serial(async () => home.moqi.setToolPolicy(name, policy as "ask" | "auto" | "normal")),
       };
+    },
+
+    "POST /api/tool-level": async (body) => {
+      const name = str(body.tool, "tool");
+      const level = str(body.level, "level");
+      if (level !== "ask" && level !== "auto") throw new HttpError(400, "level 只能是 ask 或 auto");
+      if (!home.moqi.ordinaryTools().some((t) => t.name === name))
+        throw new HttpError(400, `${name} 不是能在这里设置的工具`);
+      return { message: await home.serial(async () => home.moqi.setToolLevel(name, level)) };
+    },
+
+    "POST /api/site/forget": async (body) => {
+      const host = str(body.host, "host");
+      if (!(await home.serial(async () => home.moqi.forgetSite(host)))) throw new HttpError(404, `没有记住 ${host}`);
+      return { message: `以后打开 ${host} 会先问你` };
     },
 
     "POST /api/watch/cancel": async (body) => {

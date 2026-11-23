@@ -37,6 +37,7 @@
           <pre class="ask-details" id="ask-details" hidden></pre>
           <div class="actions">
             <button type="button" class="btn primary" id="ask-yes">好</button>
+            <button type="button" class="btn" id="ask-always" hidden></button>
             <button type="button" class="btn" id="ask-no">不用</button>
           </div>
         </div>
@@ -233,7 +234,7 @@
 
           <fieldset class="group">
             <legend>能力包</legend>
-            <p class="hint first">让 moqi 能在电脑和网页上动手。会改动东西的动作照样先问你，可以在下面「会改动东西的工具」里逐个放开。</p>
+            <p class="hint first">让 moqi 能在电脑和网页上动手。会改动东西的动作照样先问你，可以在下面「会改动东西的工具」和「普通动作」里逐个放开。</p>
             <div class="item">
               <div class="item-main">
                 <p class="item-text">浏览器（Playwright）</p>
@@ -241,7 +242,8 @@
               </div>
               <button type="button" class="btn" id="p-browser">加上</button>
             </div>
-            <p class="hint">用一个单独的 Chrome 配置，看不到你平时浏览器里的登录和记录。每个网站在一轮对话里问你一次；输入文字、上传、执行脚本每次都问。</p>
+            <p class="hint">用一个单独的 Chrome 配置，看不到你平时浏览器里的登录和记录。每个网站在一轮对话里问你一次，也可以选「以后都允许」；输入文字、上传、执行脚本每次都问。</p>
+            <div class="list" id="sites"></div>
             <div class="field">
               <div class="legend-row">
                 <label for="f-folders">文件</label>
@@ -293,6 +295,9 @@
             <h3 class="minor">会改动东西的工具</h3>
             <p class="hint">外来的写工具默认每次都先问你。放开后直接办，但这一轮读过网页、文件或别的 agent 的消息时，仍会先问。</p>
             <div class="list" id="danger-tools"></div>
+            <h3 class="minor">普通动作</h3>
+            <p class="hint">新建、移动、改名这类不覆盖、不删除东西的动作。连着同意 3 次后 moqi 也会问你要不要直接办。</p>
+            <div class="list" id="ordinary-tools"></div>
             <details class="more">
               <summary>手动添加</summary>
               <div class="field">

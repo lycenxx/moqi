@@ -56,7 +56,7 @@ async function start(
     home: dir,
     notifier: async () => {},
     fetch: net.fetch,
-    confirm: (q, d) => asker.ask(q, d),
+    confirm: (q, d, c) => asker.ask(q, d, c),
     extraPlugins: extra,
     ...homeExtra,
     agents: {
@@ -101,6 +101,60 @@ afterEach(async () => {
 const MODEL = { baseURL: "http://model.test/v1", model: "m1" };
 
 describe("console", () => {
+  it("offers to allow a site for good, lists remembered sites, and removes them", async () => {
+    const site: Plugin = {
+      name: "web",
+      tools: [
+        defineTool({
+          name: "navigate",
+          description: "Open a page",
+          input: z.object({ url: z.string() }),
+          effect: "write",
+          danger: true,
+          site: "goto",
+          source: "web",
+          run: ({ url }) => `opened ${url}`,
+        }),
+      ],
+    };
+    const { api } = await start(
+      { model: MODEL, briefingAt: null },
+      (body) =>
+        body.messages.at(-1)?.role === "tool"
+          ? { content: "开好了" }
+          : {
+              content: "",
+              tool_calls: [{ id: "c1", function: { name: "navigate", arguments: '{"url":"https://jd.com/"}' } }],
+            },
+      [site],
+    );
+    const turn = api("POST", "/api/chat", { text: "打开京东" });
+    let question: { id: string; text: string; always?: string } | null = null;
+    for (let i = 0; i < 50 && !question; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+      question = (await api("GET", "/api/state")).data.question;
+    }
+    expect(question).toMatchObject({ text: "要我打开 jd.com 吗？", always: "以后都允许" });
+    await api("POST", "/api/confirm", { id: question?.id, yes: true, always: true });
+    expect((await turn).data.reply).toBe("开好了");
+    expect((await api("GET", "/api/tools")).data.sites).toEqual(["jd.com"]);
+    expect((await api("POST", "/api/site/forget", { host: "jd.com" })).status).toBe(200);
+    expect((await api("POST", "/api/site/forget", { host: "jd.com" })).status).toBe(404);
+    expect((await api("GET", "/api/tools")).data.sites).toEqual([]);
+  });
+
+  it("lists ordinary write tools and lets the user unlock them", async () => {
+    const { home, api } = await start({ briefingAt: null });
+    const { ordinary } = (await api("GET", "/api/tools")).data;
+    expect(ordinary).toEqual(
+      expect.arrayContaining([{ name: "watch_create", source: "moqi", label: "新建盯梢", level: "ask" }]),
+    );
+    expect((await api("POST", "/api/tool-level", { tool: "watch_create", level: "auto" })).status).toBe(200);
+    expect(home.moqi.ordinaryTools().find((t) => t.name === "watch_create")?.level).toBe("auto");
+    expect((await api("POST", "/api/tool-level", { tool: "forget", level: "auto" })).status).toBe(400);
+    expect((await api("POST", "/api/tool-level", { tool: "watch_create", level: "always" })).status).toBe(400);
+  });
+
   it("serves the page under a strict CSP, and the API only with the token", async () => {
     const { ui, api } = await start({});
     const page = await fetch(`http://127.0.0.1:${ui.port}/`);
@@ -559,7 +613,7 @@ describe("console: coding agents", () => {
       await new Promise((r) => setTimeout(r, 20));
       task = (await api("GET", "/api/state")).data.code[0];
     }
-    expect(task).toMatchObject({ status: "done", files: 1, agent: "Kiro", project: basename(project) });
+    expect(task).toMatchObject({ status: "done", files: 1, agent: "Kiro", project: basename(project), into: "main" });
     const offer = (await api("GET", "/api/state")).data.offers.find((o: { kind: string }) => o.kind === "code.done");
     expect(offer?.taskId).toBe(task?.id);
     expect((await api("GET", `/api/code/diff?id=${task?.id}`)).data.diff).toContain("+hello");

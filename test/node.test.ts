@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { Moqi } from "../src/core/moqi.js";
 import { loadConfig, TEMPLATE, writeTemplate } from "../src/node/config.js";
 import { acquireLock, fileEventStore } from "../src/node/file-store.js";
-import { openHome } from "../src/node/home.js";
+import { openHome, terminalAnswer } from "../src/node/home.js";
 import { desktopNotifier } from "../src/node/notify.js";
 import { fakeClock } from "./helpers.js";
 
@@ -119,5 +119,17 @@ describe("config", () => {
     });
     expect(withPlugins.moqi.plugins.map((p) => p.name)).toEqual(["weather", "calendar", "news", "mcp"]);
     expect(withPlugins.moqi.tool("weather")).toBeDefined();
+  });
+});
+
+describe("terminal answers", () => {
+  it("reads yes, no, and 'always' only where the question offers it", () => {
+    expect(terminalAnswer("y", false)).toBe(true);
+    expect(terminalAnswer(" 好 ", false)).toBe(true);
+    expect(terminalAnswer("", false)).toBe(false);
+    expect(terminalAnswer("a", false)).toBe(false);
+    expect(terminalAnswer("a", true)).toBe("always");
+    expect(terminalAnswer("以后都允许", true)).toBe("always");
+    expect(terminalAnswer("n", true)).toBe(false);
   });
 });
