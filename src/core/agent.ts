@@ -53,6 +53,7 @@ export async function chatTurn(
   // Once this turn has read anything from outside moqi, a dangerous action is asked again, unlocked or not.
   // A memory another agent wrote is in the prompt, so it counts from the start.
   let tainted = how.fromAgent === true || activeFacts(moqi.state, moqi.clock.now()).some((f) => f.by !== undefined);
+  const sites = new Set<string>(); // sites the user agreed to open in this turn
   let answer = "";
   for (let round = 0; round <= AGENT.maxToolRounds; round++) {
     const reply = await model.chat({
@@ -74,7 +75,7 @@ export async function chatTurn(
         messages.push({ role: "tool", toolCallId: call.id, content: "参数不是合法的 JSON" });
         continue;
       }
-      const result = await moqi.callTool(call.name, args, { byUser: true, tainted });
+      const result = await moqi.callTool(call.name, args, { byUser: true, tainted, sites });
       const used = moqi.tool(call.name);
       if (used && !used.local) tainted = true;
       messages.push({ role: "tool", toolCallId: call.id, content: result });

@@ -32,6 +32,10 @@ export interface Tool<A = unknown> {
   readonly local?: true;
   /** Who provides it, for the confirmation and the settings: an MCP server or an A2A agent. */
   readonly source?: string;
+  /** For web tools: "goto" opens `args.url` and is granted once per site and turn; "within" acts on a granted site. */
+  readonly site?: "goto" | "within";
+  /** A read tool that must not run on a schedule, e.g. reading the clipboard. */
+  readonly noWatch?: true;
   /** Says in plain words what a call will do, for the confirmation question, e.g. "每天 22:00 提醒你「早点睡」". */
   describe?(args: A): string;
   /** Rejects a call before anyone is asked to approve it. Returns the problem, or undefined if the call is fine. */

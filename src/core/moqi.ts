@@ -8,6 +8,7 @@ import { decide, defaultPolicy, inQuietHours, type Policy } from "./proactive.js
 import { REFLECT, reflect } from "./reflect.js";
 import { findRoutines } from "./routines.js";
 import { dayKey, describeSchedule, minuteOfDay, nextRun, parseTime } from "./schedule.js";
+import { siteDecision } from "./sites.js";
 import { State } from "./state.js";
 import { STUDY, studiedOn, study } from "./study.js";
 import { dueReminders, findRepeatedTodos, reminderOffer, reviewOffer, TODO, TODO_KIND } from "./todo.js";
@@ -130,7 +131,7 @@ export class Moqi {
   /** Read tools a watch may call on a schedule. */
   private isWatchable(name: string): boolean {
     const tool = this.tools.get(name);
-    return !!tool && tool.effect === "read" && !tool.hidden && !UNWATCHABLE.includes(name);
+    return !!tool && tool.effect === "read" && !tool.hidden && !tool.noWatch && !UNWATCHABLE.includes(name);
   }
 
   visibleTools(): Tool[] {
@@ -271,7 +272,7 @@ export class Moqi {
   async callTool(
     name: string,
     args: Record<string, unknown>,
-    how: { byUser: boolean; preApproved?: boolean; tainted?: boolean },
+    how: { byUser: boolean; preApproved?: boolean; tainted?: boolean; sites?: Set<string> },
   ): Promise<string> {
     const tool = this.tools.get(name);
     if (!tool) return `没有工具 ${name}`;
@@ -283,20 +284,41 @@ export class Moqi {
     if (problem) return `参数不对：${problem}`; // back to the model; never ask the user to approve a broken call
     const policy = actionPolicy(tool);
     const guard = guarded(this.state, name, policy);
-    // A dangerous action is confirmed with exactly what it does, even when an offer was accepted:
-    // the offer's words are the model's and may not match its action.
-    const offered = how.preApproved === true && guard;
-    const preApproved = how.preApproved === true && !guard;
-    const tainted = how.tainted === true || offered;
-    const asked = !preApproved && needsConfirmation(this.state, name, policy, tainted);
-    if (asked || preApproved) {
-      const what = tool.describe?.(parsed.data) ?? describeAction(tool, parsed.data as Record<string, unknown>);
-      const question = guard && !tool.describe ? `要我用「${this.sourceOf(name)}」的 ${name} 吗？` : `要我${what}吗？`;
-      const reason = offered ? "offer" : tainted && this.state.toolPolicies.get(name) === "auto" ? "outside" : "danger";
-      const details = tool.danger ? dangerDetails(args, guard ? reason : undefined) : undefined;
-      const approved = preApproved || (await this.ask(question, details));
-      if (tool.effect === "write") this.emit({ type: "approval", kind: name, approved });
+    // Within a turn, a site the user agreed to may be browsed without asking again (only while the user
+    // has not decided about this tool in Settings).
+    const site =
+      guard && tool.site && how.sites && (this.state.toolPolicies.get(name) ?? "ask") === "ask"
+        ? siteDecision(tool.site, args, how.sites)
+        : undefined;
+    if (site && "host" in site) {
+      const approved = await this.ask(
+        `要我打开 ${site.host} 吗？`,
+        `这一轮里在 ${site.host} 上打开页面、点击、翻页不再问；输入文字、上传、执行脚本仍会问。\n\n${site.url}`,
+      );
+      this.emit({ type: "approval", kind: name, approved });
       if (!approved) return "用户没有同意，这一步没做";
+      how.sites?.add(site.host);
+    } else if (!site) {
+      // A dangerous action is confirmed with exactly what it does, even when an offer was accepted:
+      // the offer's words are the model's and may not match its action.
+      const offered = how.preApproved === true && guard;
+      const preApproved = how.preApproved === true && !guard;
+      const tainted = how.tainted === true || offered;
+      const asked = !preApproved && needsConfirmation(this.state, name, policy, tainted);
+      if (asked || preApproved) {
+        const what = tool.describe?.(parsed.data) ?? describeAction(tool, parsed.data as Record<string, unknown>);
+        const question =
+          guard && !tool.describe ? `要我用「${this.sourceOf(name)}」的 ${name} 吗？` : `要我${what}吗？`;
+        const reason = offered
+          ? "offer"
+          : tainted && this.state.toolPolicies.get(name) === "auto"
+            ? "outside"
+            : "danger";
+        const details = tool.danger ? dangerDetails(args, guard ? reason : undefined) : undefined;
+        const approved = preApproved || (await this.ask(question, details));
+        if (tool.effect === "write") this.emit({ type: "approval", kind: name, approved });
+        if (!approved) return "用户没有同意，这一步没做";
+      }
     }
     let text: string;
     try {
@@ -550,7 +572,7 @@ export class Moqi {
     );
     const automatable = (name: string) => {
       const tool = this.tools.get(name);
-      return !!tool && tool.effect === "read" && !tool.hidden && !UNWATCHABLE.includes(name);
+      return !!tool && tool.effect === "read" && !tool.hidden && !tool.noWatch && !UNWATCHABLE.includes(name);
     };
     for (const r of findRoutines(this.state, now, automatable)) {
       if (offered.has(r.key) || watched.has(`${r.tool}:${JSON.stringify(r.args)}`)) continue;
