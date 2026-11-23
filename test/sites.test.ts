@@ -50,9 +50,13 @@ describe("site grants", () => {
     expect(hostOf("file:///etc/passwd")).toBeUndefined();
     expect(hostOf("not a url")).toBeUndefined();
     expect(hostOf("http://localhost:4567/api")).toBe("localhost:4567");
+    expect(hostOf("https://com./")).toBe("com"); // a trailing dot does not make a one-label host cover others
+    expect(hostOf("https://Evil.com.:8443/")).toBe("evil.com:8443");
+    expect(hostOf("https://www.jd.com:443/")).toBe("jd.com");
     const grant = { granted: new Set(["localhost:3000", "jd.com", "com"]), current: undefined };
     expect(siteDecision("goto", { url: "http://localhost:4567/" }, grant)).toMatchObject({ host: "localhost:4567" });
     expect(siteDecision("goto", { url: "https://evil.com/" }, grant)).toMatchObject({ host: "evil.com" });
+    expect(siteDecision("goto", { url: "https://evil.com./" }, grant)).toMatchObject({ host: "evil.com" });
     expect(siteDecision("goto", { url: "https://item.jd.com/1.html" }, grant)).toEqual({ run: true });
   });
 

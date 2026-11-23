@@ -11,12 +11,20 @@ export interface SiteGrant {
   current?: string | undefined;
 }
 
-/** The host of an http(s) address, lower case, without "www.", with its port when it is not the usual one. */
+/**
+ * The host of an http(s) address, lower case, without "www." and without a trailing dot ("com." is "com", so it
+ * covers only itself), with its port when it is not the usual one.
+ */
 export function hostOf(url: string): string | undefined {
   try {
     const u = new URL(url);
     if (u.protocol !== "http:" && u.protocol !== "https:") return undefined;
-    return u.host.toLowerCase().replace(/^www\./, "") || undefined;
+    const name = u.hostname
+      .toLowerCase()
+      .replace(/\.+$/, "")
+      .replace(/^www\./, "");
+    if (!name) return undefined;
+    return u.port ? `${name}:${u.port}` : name;
   } catch {
     return undefined;
   }
