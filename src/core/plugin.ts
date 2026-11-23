@@ -8,6 +8,8 @@ export interface ToolContext {
   now(): number;
   readonly state: State;
   readonly signal?: AbortSignal;
+  /** This conversation turn has read outside content, so what the tool keeps is marked as such. */
+  readonly tainted?: boolean;
 }
 
 export interface Tool<A = unknown> {

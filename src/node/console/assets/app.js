@@ -586,6 +586,7 @@ function renderMemory() {
             { class: "item-meta" },
             f.term === "long" ? h("span", { class: "tag", text: "长期" }) : `印证 ${f.confirmations}/3`,
             f.faded ? (f.term === "long" ? "已淡出" : " · 已淡出") : null,
+            f.by ? ` · 来自 ${f.by}` : null,
           ),
         ),
         removeButton("删除这条记忆", "确定删除", () => api("POST", "/api/forget", { id: f.id })),

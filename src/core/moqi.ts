@@ -278,7 +278,7 @@ export class Moqi {
     const parsed = tool.input.safeParse(args);
     if (!parsed.success)
       return `参数不对：${parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ")}`;
-    const ctx = { now: () => this.clock.now(), state: this.state };
+    const ctx = { now: () => this.clock.now(), state: this.state, ...(how.tainted && { tainted: true }) };
     const problem = tool.validate?.(parsed.data, ctx);
     if (problem) return `参数不对：${problem}`; // back to the model; never ask the user to approve a broken call
     const policy = actionPolicy(tool);
@@ -613,7 +613,7 @@ function describeAction(tool: Tool, args: Record<string, unknown>): string {
 const DETAILS_MAX = 2000;
 const WHY = {
   danger: "这是会改动东西的外部工具，每次都要你确认。",
-  outside: "这一轮读过网页或工具结果，所以再确认一次。",
+  outside: "这一轮读到了外部内容（网页、工具结果、别的 agent 写的话或记忆），所以再确认一次。",
   offer: "这是 moqi 提议的动作，确认一下它实际要做的事。",
 } as const;
 

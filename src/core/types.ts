@@ -22,6 +22,8 @@ export interface Fact {
   readonly createdAt: number;
   readonly lastSeenAt: number;
   readonly term: "short" | "long";
+  /** Who wrote it, when not the user: another agent's name, or "外部内容" for what came in with outside content. */
+  readonly by?: string;
 }
 
 export interface Conflict {

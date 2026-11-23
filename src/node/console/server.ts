@@ -227,6 +227,7 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
           term: f.term,
           confirmations: f.confirmations,
           faded: isFaded(f, now),
+          by: f.by ?? null,
         }));
       const watches = [...moqi.state.watches.values()].map((w) => ({
         id: w.id,
@@ -297,7 +298,9 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       if (content === "") throw new HttpError(400, "content 是空的");
       const kind =
         typeof body.kind === "string" && FACT_KINDS.includes(body.kind as FactKind) ? (body.kind as FactKind) : "other";
-      return { message: await home.serial(async () => home.moqi.remember({ kind, content })) };
+      // Only other agents call this; what they write counts as outside content in later conversations.
+      const by = byAgent(body.from) ? String(body.from).trim().slice(0, 40) : "另一个 agent";
+      return { message: await home.serial(async () => home.moqi.remember({ kind, content, by })) };
     },
 
     "POST /api/tell": async (body) => {

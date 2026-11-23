@@ -71,8 +71,10 @@ export const TOOLS: readonly ToolDef[] = [
       ["content"],
     ),
     readOnly: false,
-    run: async (args, link) =>
-      String((await link.call("POST", "/api/remember", { content: args.content, kind: args.kind })).message),
+    run: async (args, link, client) =>
+      String(
+        (await link.call("POST", "/api/remember", { content: args.content, kind: args.kind, from: client })).message,
+      ),
   },
   {
     name: "moqi_tell",

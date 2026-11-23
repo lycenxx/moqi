@@ -88,6 +88,10 @@ describe("moqi over MCP", () => {
     expect(text(await client.callTool({ name: "moqi_profile", arguments: {} }))).toContain(
       "开源的 TypeScript agent 框架（印证 2/3）",
     );
+    const s = (await (await fetch(stateUrl(), { headers: headers() })).json()) as {
+      facts: { content: string; by: string | null }[];
+    };
+    expect(s.facts.find((f) => f.content.includes("TypeScript agent"))?.by).toBe("test-agent");
   });
 
   it("reaches the user through moqi's attention rules, per agent", async () => {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { LEVELS } from "./autonomy.js";
-import { FACT_KINDS } from "./memory.js";
+import { FACT_KINDS, OUTSIDE } from "./memory.js";
 import { defineTool, type Tool } from "./plugin.js";
 import { dayKey, describeSchedule, nextRun, validateSchedule } from "./schedule.js";
 import {
@@ -19,7 +19,7 @@ import { newId, type Schedule, type Todo, type Watch } from "./types.js";
 /** What built-in tools need from moqi. */
 export interface Kernel {
   now(): number;
-  remember(input: { kind: (typeof FACT_KINDS)[number]; content: string; contradicts?: string }): string;
+  remember(input: { kind: (typeof FACT_KINDS)[number]; content: string; contradicts?: string; by?: string }): string;
   emit: (body: import("./types.js").EventBody) => void;
   readonly state: import("./state.js").State;
   toolNames(): string[];
@@ -75,7 +75,8 @@ export function builtinTools(k: Kernel): Tool<any>[] {
       local: true,
       start: "auto",
       cap: "auto",
-      run: (a) => k.remember(a as never),
+      // Kept after reading outside content, it is marked: it may be what a page told the model to remember.
+      run: (a, ctx) => k.remember({ ...(a as Parameters<Kernel["remember"]>[0]), ...(ctx.tainted && { by: OUTSIDE }) }),
     }),
     defineTool({
       // Not local: memories, todos and watch results can hold other agents' words and fetched text.

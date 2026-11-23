@@ -175,8 +175,11 @@ export class State {
         const f = this.facts.get(e.factId);
         this.conflicts.delete(e.factId);
         // Keeping the new statement replaces the content; the user's decision counts as a confirmation.
-        if (c && f && e.keep === "new")
-          this.facts.set(e.factId, { ...f, content: c.new, lastSeenAt: e.at, confirmations: 1, term: "short" });
+        if (c && f && e.keep === "new") {
+          // The user chose these words, so they are the user's now, whoever wrote them first.
+          const { by: _by, ...mine } = f;
+          this.facts.set(e.factId, { ...mine, content: c.new, lastSeenAt: e.at, confirmations: 1, term: "short" });
+        }
         if (c && f && e.keep === "old") this.facts.set(e.factId, { ...f, lastSeenAt: e.at });
         break;
       }

@@ -5,6 +5,8 @@ import { type Clock, type EventBody, type Fact, type FactKind, newId } from "./t
 export const FACT_KINDS: readonly FactKind[] = ["basic", "preference", "ongoing", "relation", "routine", "other"];
 export const MAX_FACT_CHARS = 120;
 export const PROMPT_FACTS = 30;
+/** `Fact.by` for what moqi took in while it was reading outside content, or from another agent's words. */
+export const OUTSIDE = "外部内容";
 
 /** Equal after case, whitespace and punctuation are ignored ("住在深圳。" == "住在 深圳"). */
 export function normalize(text: string): string {
@@ -19,6 +21,8 @@ export interface RememberInput {
   readonly content: string;
   /** id of an existing fact this statement contradicts. */
   readonly contradicts?: string;
+  /** Who said it, when not the user. A fact with one makes a conversation turn count as having read outside content. */
+  readonly by?: string;
 }
 
 /** What remembering something produces: a new fact, a confirmation, or a conflict for the user. */
@@ -44,6 +48,7 @@ export function rememberEvents(state: State, input: RememberInput, clock: Clock)
     createdAt: now,
     lastSeenAt: now,
     term: "short",
+    ...(input.by && { by: input.by.slice(0, 40) }),
   };
   return [{ type: "fact.added", fact }];
 }

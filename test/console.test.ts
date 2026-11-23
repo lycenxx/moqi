@@ -515,6 +515,10 @@ describe("console: other agents", () => {
     const r = await api("POST", "/api/remember", { content: "在做 taugraph", kind: "nonsense" });
     expect(r.data.message).toContain("记住了");
     expect([...home.moqi.state.facts.values()][0]).toMatchObject({ content: "在做 taugraph", kind: "other" });
+    await api("POST", "/api/remember", { content: "用 Kiro 写代码", from: "kiro-cli" });
+    const facts = (await api("GET", "/api/state")).data.facts as { content: string; by: string | null }[];
+    expect(facts.find((f) => f.content === "用 Kiro 写代码")?.by).toBe("kiro-cli");
+    expect(facts.find((f) => f.content === "在做 taugraph")?.by).toBe("另一个 agent");
     expect((await api("POST", "/api/remember", { content: "  " })).status).toBe(400);
 
     const told = await api("POST", "/api/tell", { title: "部署好了", urgency: "now", value: 1, from: "Kiro!" });

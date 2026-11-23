@@ -322,12 +322,16 @@ export function todoStats(state: State, now: number): string {
     const soon = inBand.filter((t) => t.doneAt !== undefined && t.doneAt - (t.remindAt ?? 0) <= TODO.doneSoonMs).length;
     lines.push(`- ${band}的提醒 ${inBand.length} 次，提醒后 2 小时内完成 ${soon} 次`);
   }
+  // Other agents' words are counted, never quoted: a lesson must not carry them into every conversation.
+  const own = (t: Todo) => t.by === undefined || t.by === "moqi";
   const lastDone = [...done]
+    .filter(own)
     .sort((a, b) => (b.doneAt ?? 0) - (a.doneAt ?? 0))
     .slice(0, 5)
     .map((t) => t.text);
   if (lastDone.length) lines.push(`- 最近完成：${lastDone.join("、")}`);
   const stuck = open
+    .filter(own)
     .map((t) => ({ text: t.text, late: daysLate(t, now) }))
     .filter((x) => x.late > 0)
     .sort((a, b) => b.late - a.late)

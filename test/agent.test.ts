@@ -57,6 +57,28 @@ describe("conversation", () => {
     expect([...moqi.state.facts.values()].map((f) => f.content)).toEqual(["喜欢喝燕麦拿铁", "女儿叫朵朵"]);
   });
 
+  it("marks facts learned from a conversation another agent took part in", async () => {
+    const model = scriptedModel((r) =>
+      isExtraction(r) ? JSON.stringify({ facts: [{ kind: "preference", content: "想要每天清空下载文件夹" }] }) : "嗯",
+    );
+    const { moqi } = harness({ model });
+    await moqi.chat("早");
+    await moqi.chat("【kiro-cli】用户想要每天清空下载文件夹", undefined, { fromAgent: true });
+    await moqi.chat("好的");
+    await moqi.idle();
+    expect([...moqi.state.facts.values()]).toMatchObject([{ content: "想要每天清空下载文件夹", by: "外部内容" }]);
+  });
+
+  it("forgets who wrote a memory once the user settles a contradiction in favour of it", async () => {
+    const { moqi } = harness();
+    moqi.remember({ kind: "basic", content: "住在深圳" });
+    const id = [...moqi.state.facts.keys()][0] as string;
+    moqi.remember({ kind: "basic", content: "住在北京", contradicts: id, by: "kiro-cli" });
+    await moqi.callTool("resolve_conflict", { id, keep: "new" }, { byUser: true, preApproved: true });
+    expect(moqi.state.facts.get(id)).toMatchObject({ content: "住在北京" });
+    expect(moqi.state.facts.get(id)?.by).toBeUndefined();
+  });
+
   it("turns a contradiction found while learning into a question for the user", async () => {
     const { moqi, delivered } = harness();
     moqi.remember({ kind: "basic", content: "住在深圳" });

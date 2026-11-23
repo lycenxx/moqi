@@ -1,5 +1,5 @@
 import { extractFacts, LEARN } from "./learn.js";
-import { activeFacts, promptSection } from "./memory.js";
+import { activeFacts, OUTSIDE, promptSection } from "./memory.js";
 import type { ChatMessage } from "./model.js";
 import type { Moqi } from "./moqi.js";
 import { toolSpec } from "./plugin.js";
@@ -51,7 +51,8 @@ export async function chatTurn(
     { role: "user", content: text },
   ];
   // Once this turn has read anything from outside moqi, a dangerous action is asked again, unlocked or not.
-  let tainted = how.fromAgent === true;
+  // A memory another agent wrote is in the prompt, so it counts from the start.
+  let tainted = how.fromAgent === true || activeFacts(moqi.state, moqi.clock.now()).some((f) => f.by !== undefined);
   let answer = "";
   for (let round = 0; round <= AGENT.maxToolRounds; round++) {
     const reply = await model.chat({
@@ -95,7 +96,9 @@ export async function learn(moqi: Moqi, signal?: AbortSignal): Promise<number> {
     .slice(-LEARN.recentMessages);
   try {
     const facts = await extractFacts(moqi.model, recent, activeFacts(moqi.state, moqi.clock.now()), signal);
-    for (const fact of facts) moqi.remember(fact);
+    // Another agent spoke in this window: what was learned may be its words, not the user's.
+    const outside = recent.some((m) => m.role === "user" && /^【[^】]{1,40}】/.test(m.text));
+    for (const fact of facts) moqi.remember(outside ? { ...fact, by: OUTSIDE } : fact);
     return facts.length;
   } catch {
     return 0;
