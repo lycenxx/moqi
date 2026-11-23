@@ -39,7 +39,7 @@ const ICONS = {
 
 let state = null;
 let view = sessionStorage.getItem("moqi.view") || "chat";
-let sending = null; // the text being sent, shown until moqi answers
+let sending = null; // { text, images } being sent, shown until moqi answers
 let lastMessages = "";
 let settingsLoaded = false;
 let weather = null; // { latitude, longitude, place }
@@ -55,6 +55,15 @@ let memoryKey = "";
 let todosKey = "";
 let codeKey = "";
 const drafts = new Map(); // offer id -> what the user has typed so far
+const MAX_IMAGES = 4;
+const MAX_EDGE = 2048;
+const MAX_BYTES = 2 * 1024 * 1024;
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+const NO_VISION = "当前模型看不了图，可以换成 deepseek-flash 这类能看图的模型";
+let attachments = []; // { preview, id?, error?, uploading }
+let visionAsked = null; // the one check in flight
+const pictures = new Map(); // media id -> Promise of a blob: URL
+let tested = null; // { baseURL, model, vision } of the last connection test
 
 /* Small helpers */
 
@@ -195,6 +204,66 @@ function scrollToEnd() {
   requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight }));
 }
 
+/** An image from moqi, fetched with the key and shown through a blob: URL. */
+function mediaUrl(id) {
+  if (!pictures.has(id))
+    pictures.set(
+      id,
+      fetch(`/api/media?id=${encodeURIComponent(id)}`, { headers: { "x-moqi-token": token } })
+        .then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.blob();
+        })
+        .then((b) => URL.createObjectURL(b)),
+    );
+  return pictures.get(id);
+}
+
+function picture(id, alt) {
+  const img = h("img", { alt });
+  const button = h("button", { type: "button", class: "pic", "aria-label": `放大看：${alt}` }, img);
+  button.addEventListener("click", () => openViewer(img.src, alt, button));
+  mediaUrl(id)
+    .then((url) => {
+      img.src = url;
+    })
+    .catch(() => {
+      button.classList.add("gone");
+      img.alt = `${alt}（找不到了）`;
+    });
+  return button;
+}
+
+function openViewer(src, alt, from) {
+  if (!src) return;
+  $("viewer-img").src = src;
+  $("viewer-img").alt = alt;
+  $("viewer").addEventListener("close", () => from.focus(), { once: true });
+  $("viewer").showModal();
+}
+$("viewer").addEventListener("click", (e) => {
+  if (e.target === $("viewer")) $("viewer").close();
+});
+
+/** moqi's answer. Plain text here; Markdown replaces it. */
+function renderAnswer(text) {
+  return h("div", { class: "msg-text", text });
+}
+
+function messageEl(m) {
+  const user = m.role === "user";
+  const ids = m.images || [];
+  const pics = ids.length
+    ? h(
+        "div",
+        { class: "pics" },
+        ids.map((id, i) => picture(id, user ? `你发的图片 ${i + 1}` : `moqi 带回的图片 ${i + 1}`)),
+      )
+    : null;
+  if (user) return h("div", { class: "msg user" }, pics, m.text ? h("div", { class: "msg-text", text: m.text }) : null);
+  return h("div", { class: "msg moqi" }, renderAnswer(m.text), pics);
+}
+
 function renderChat() {
   const list = $("messages");
   const key = JSON.stringify([state.messages.length, state.messages.at(-1)?.at, sending, state.configured]);
@@ -222,17 +291,15 @@ function renderChat() {
       ),
     );
   }
-  for (const m of state.messages) {
-    list.append(h("div", { class: `msg ${m.role === "user" ? "user" : "moqi"}`, text: m.text }));
-  }
+  for (const m of state.messages) list.append(messageEl(m));
   if (sending !== null) {
     const last = state.messages.at(-1);
-    if (!(last && last.role === "user" && last.text === sending))
-      list.append(h("div", { class: "msg user", text: sending }));
+    if (!(last && last.role === "user" && last.text === sending.text))
+      list.append(messageEl({ role: "user", text: sending.text, images: sending.images }));
     list.append(h("div", { class: "msg moqi thinking", text: "moqi 在想" }));
   }
   $("input").disabled = !state.configured;
-  $("send").disabled = !state.configured || sending !== null;
+  renderAttach();
   scrollToEnd();
 }
 
@@ -821,19 +888,149 @@ input.addEventListener("keydown", (e) => {
 $("composer").addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = input.value.trim();
-  if (!text || sending !== null) return;
-  sending = text;
+  const ready = attachments.filter((a) => a.id);
+  if (sending !== null || attachments.some((a) => a.uploading) || (!text && ready.length === 0)) return;
+  sending = { text, images: ready.map((a) => a.id) };
+  const sent = attachments;
+  attachments = [];
   input.value = "";
   autosize();
   render();
   try {
-    await api("POST", "/api/chat", { text });
+    await api("POST", "/api/chat", { text, ...(sending.images.length > 0 && { images: sending.images }) });
+    for (const a of sent) URL.revokeObjectURL(a.preview);
   } catch (error) {
     toast(error.message);
     if (!input.value) input.value = text;
+    attachments = sent; // kept, to send again
   }
   sending = null;
   await refresh();
+});
+
+async function shrink(file) {
+  if (file.type === "image/gif") {
+    if (file.size > MAX_BYTES) throw new Error("GIF 太大了，最多 2 MB");
+    return file;
+  }
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+  if (scale === 1 && file.size <= MAX_BYTES) {
+    bitmap.close();
+    return file;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+  if (!blob) throw new Error("这张图处理不了");
+  return blob;
+}
+
+async function upload(blob) {
+  const res = await fetch("/api/media", {
+    method: "POST",
+    headers: { "x-moqi-token": token, "content-type": blob.type || "application/octet-stream" },
+    body: blob,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `上传失败（HTTP ${res.status}）`);
+  return data.id;
+}
+
+/** Whether the model can see images; asks it once when nobody knows yet. */
+async function canSee() {
+  if (typeof state?.vision === "boolean") return state.vision;
+  $("attach-status").textContent = "正在确认模型能不能看图…";
+  visionAsked ??= api("POST", "/api/model/vision", {})
+    .then((r) => r.vision)
+    .finally(() => {
+      visionAsked = null;
+    });
+  try {
+    state.vision = await visionAsked;
+    return state.vision;
+  } finally {
+    $("attach-status").textContent = "";
+  }
+}
+
+async function addImages(files) {
+  const images = [...files].filter((f) => IMAGE_TYPES.includes(f.type));
+  if (images.length === 0) return;
+  if (!state?.configured) return toast("先给 moqi 接一个模型");
+  let ok = false;
+  try {
+    ok = await canSee();
+  } catch (error) {
+    return toast(error.message);
+  }
+  renderAttach();
+  if (!ok) return toast(NO_VISION);
+  for (const file of images) {
+    if (attachments.length >= MAX_IMAGES) {
+      toast(`一条消息最多 ${MAX_IMAGES} 张图片`);
+      break;
+    }
+    const a = { preview: URL.createObjectURL(file), uploading: true };
+    attachments.push(a);
+    renderAttach();
+    try {
+      a.id = await upload(await shrink(file));
+    } catch (error) {
+      a.error = error.message;
+    }
+    a.uploading = false;
+    renderAttach();
+  }
+}
+
+function renderAttach() {
+  const strip = $("attachments");
+  strip.replaceChildren();
+  strip.hidden = attachments.length === 0;
+  for (const a of attachments) {
+    const remove = h("button", { type: "button", class: "thumb-remove", "aria-label": "移除这张图片" }, icon("x"));
+    remove.addEventListener("click", () => {
+      URL.revokeObjectURL(a.preview);
+      attachments = attachments.filter((x) => x !== a);
+      renderAttach();
+    });
+    const cls = `thumb${a.error ? " bad" : ""}${a.uploading ? " busy" : ""}`;
+    strip.append(
+      h("div", { class: cls, title: a.error || "" }, h("img", { src: a.preview, alt: "要发的图片" }), remove),
+    );
+  }
+  const blocked = state?.vision === false;
+  $("attach").setAttribute("aria-disabled", String(blocked || !state?.configured));
+  $("attach").title = blocked ? NO_VISION : "添加图片";
+  $("send").disabled = !state?.configured || sending !== null || attachments.some((a) => a.uploading);
+}
+
+$("attach").addEventListener("click", () => {
+  if (!state?.configured) return toast("先给 moqi 接一个模型");
+  if (state.vision === false) return toast(NO_VISION);
+  $("file").click();
+});
+$("file").addEventListener("change", () => {
+  addImages($("file").files);
+  $("file").value = "";
+});
+input.addEventListener("paste", (e) => {
+  const files = [...(e.clipboardData?.files ?? [])];
+  if (!files.some((f) => f.type.startsWith("image/"))) return;
+  e.preventDefault();
+  addImages(files);
+});
+$("view-chat").addEventListener("dragover", (e) => {
+  if ([...(e.dataTransfer?.items ?? [])].some((i) => i.kind === "file")) e.preventDefault();
+});
+$("view-chat").addEventListener("drop", (e) => {
+  if (!e.dataTransfer?.files.length) return;
+  e.preventDefault();
+  addImages(e.dataTransfer.files);
 });
 
 /* Settings */
@@ -1086,8 +1283,12 @@ $("m-test").addEventListener("click", async (e) => {
   try {
     const r = await api("POST", "/api/model/test", { model: modelInput() });
     const secs = (r.ms / 1000).toFixed(1);
-    if (r.ok) setResult(out, r.reply ? `连上了（${secs} 秒）：${r.reply}` : `连上了（${secs} 秒）`, "ok");
-    else setResult(out, `连不上：${r.error}`, "bad");
+    if (r.ok) {
+      const m = modelInput();
+      tested = { baseURL: m.baseURL, model: m.model, vision: r.vision === true };
+      const sees = r.vision ? "，能看图" : "，看不了图";
+      setResult(out, r.reply ? `连上了（${secs} 秒${sees}）：${r.reply}` : `连上了（${secs} 秒${sees}）`, "ok");
+    } else setResult(out, `连不上：${r.error}`, "bad");
   } catch (error) {
     setResult(out, error.message, "bad");
   }
@@ -1510,7 +1711,9 @@ $("settings").addEventListener("submit", async (e) => {
     .filter(Boolean);
   if ($("f-on").checked && folders.length === 0) return setResult(out, "文件开着，但一个文件夹都没填", "bad");
   const config = {
-    model: m.baseURL ? m : null,
+    model: m.baseURL
+      ? { ...m, ...(tested && tested.baseURL === m.baseURL && tested.model === m.model && { vision: tested.vision }) }
+      : null,
     persona: $("persona").value.trim() || undefined,
     briefingAt: $("b-on").checked ? $("b-at").value : null,
     todoReviewAt: $("r-on").checked ? $("r-at").value : null,

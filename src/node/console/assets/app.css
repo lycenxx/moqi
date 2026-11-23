@@ -323,23 +323,6 @@ svg {
   padding-bottom: 24px;
 }
 
-.msg {
-  max-width: 85%;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.msg.user {
-  align-self: flex-end;
-  padding: 10px 16px;
-  border-radius: 18px 18px 4px 18px;
-  background: var(--bubble);
-}
-
-.msg.moqi {
-  align-self: flex-start;
-}
-
 .msg.thinking {
   color: var(--faint);
 }
@@ -408,36 +391,6 @@ select.policy {
   background: var(--surface);
 }
 
-.composer {
-  position: sticky;
-  bottom: 16px;
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 8px 8px 8px 16px;
-  border: 1px solid var(--border-strong);
-  border-radius: 24px;
-  background: var(--surface);
-  transition: border-color 150ms ease;
-}
-
-.composer:focus-within {
-  border-color: var(--accent);
-}
-
-.composer textarea {
-  flex: 1;
-  min-height: 28px;
-  max-height: 160px;
-  margin: 6px 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  resize: none;
-  outline: none;
-  line-height: 1.6;
-}
-
 .send {
   display: inline-flex;
   align-items: center;
@@ -461,6 +414,210 @@ select.policy {
 .send:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.msg {
+  max-width: 85%;
+  overflow-wrap: anywhere;
+}
+
+.msg-text {
+  white-space: pre-wrap;
+}
+
+.msg.user {
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.msg.user .msg-text {
+  padding: 10px 16px;
+  border-radius: 18px 18px 4px 18px;
+  background: var(--bubble);
+}
+
+.msg.moqi {
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.composer {
+  position: sticky;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 8px 8px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 26px;
+  background: var(--surface);
+  box-shadow: 0 4px 18px rgb(0 0 0 / 5%);
+  transition: border-color 150ms ease;
+}
+
+.composer:focus-within {
+  border-color: var(--accent);
+}
+
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.composer textarea {
+  flex: 1;
+  min-height: 28px;
+  max-height: 160px;
+  margin: 6px 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  resize: none;
+  outline: none;
+  line-height: 1.6;
+}
+
+.attach {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.attach:hover {
+  background: var(--bubble);
+  color: var(--text);
+}
+
+.attach[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.thumb {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bubble);
+}
+
+.thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumb.busy {
+  opacity: 0.55;
+}
+
+.thumb.bad {
+  border-color: var(--danger);
+}
+
+.thumb-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+}
+
+.thumb-remove svg {
+  width: 14px;
+  height: 14px;
+}
+
+.attach-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.attach-status:empty {
+  display: none;
+}
+
+.pics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pic {
+  max-width: 320px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bubble);
+  cursor: zoom-in;
+}
+
+.pic img {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+}
+
+.pic.gone {
+  min-width: 120px;
+  min-height: 60px;
+  cursor: default;
+}
+
+.viewer {
+  max-width: 92vw;
+  max-height: 92vh;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.viewer::backdrop {
+  background: rgb(0 0 0 / 72%);
+}
+
+.viewer img {
+  display: block;
+  max-width: 92vw;
+  max-height: 92vh;
+  border-radius: 8px;
 }
 
 /* Lists and cards */
