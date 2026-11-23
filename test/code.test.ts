@@ -7,6 +7,7 @@ import {
   codePreferences,
   codePrompt,
 } from "../src/core/code.js";
+import { seenOffers } from "../src/core/feed.js";
 import { harness } from "./helpers.js";
 
 const MOQI: CodeProject = { path: "/work/moqi", agent: "kiro", commands: ["pnpm test"], network: false };
@@ -95,11 +96,11 @@ describe("coding tasks", () => {
 
   it("tells the user once when it is done, and merges on their word with what it changed", async () => {
     const f = fakeRunner();
-    const { moqi, delivered, asked } = harness({ code: f.runner, start: "2026-11-20T10:00:00+08:00" });
+    const { moqi, delivered, asked, clock } = harness({ code: f.runner, start: "2026-11-20T10:00:00+08:00" });
     await moqi.callTool("code_delegate", { project: "moqi", task: "把依赖升级到最新" }, { byUser: true });
     const id = f.started[0]?.id as string;
-    moqi.codeFinished(id, done);
-    moqi.codeFinished(id, done);
+    moqi.codeFinished(id, { ...done, head: "def456" });
+    moqi.codeFinished(id, { ...done, head: "def456" });
     const offers = delivered.filter((d) => d.offer.kind === "code.done");
     expect(offers).toHaveLength(1);
     expect(offers[0]?.surface).toBe("notify");
@@ -114,7 +115,8 @@ describe("coding tasks", () => {
     expect(await moqi.feedback(offers[0]?.offer.id ?? "", "accepted")).toBe(`已合并到 main：moqi/20261120-0820-${id}`);
     expect(asked).toHaveLength(before); // the tap on moqi's own card was the confirmation
     expect(f.merged).toEqual([id]);
-    expect(moqi.state.codeTasks.get(id)?.status).toBe("merged");
+    expect(moqi.state.codeTasks.get(id)).toMatchObject({ status: "merged", head: "def456", into: "main" });
+    expect(seenOffers(moqi.state, clock.now()).at(0)?.outcome).toBe("已合并到 main");
     expect(await moqi.callTool("code_merge", { id }, { byUser: true })).toBe("参数不对：已经合并过了");
   });
 
@@ -140,7 +142,7 @@ describe("coding tasks", () => {
 
   it("discards a task, and says so when there was nothing to merge", async () => {
     const f = fakeRunner();
-    const { moqi, delivered } = harness({ code: f.runner });
+    const { moqi, delivered, clock } = harness({ code: f.runner });
     await moqi.callTool("code_delegate", { project: "moqi", task: "看看能不能更快" }, { byUser: true });
     const id = f.started[0]?.id as string;
     moqi.codeFinished(id, { ok: true, summary: "没找到能改的地方。", files: [], stat: "" });
@@ -151,6 +153,8 @@ describe("coding tasks", () => {
     expect(await moqi.callTool("code_discard", { id }, { byUser: true, preApproved: true })).toMatch(/丢弃了/);
     expect(f.discarded).toEqual([id]);
     expect(moqi.state.codeTasks.get(id)?.status).toBe("discarded");
+    await moqi.feedback(delivered.at(-1)?.offer.id ?? "", "dismissed");
+    expect(seenOffers(moqi.state, clock.now()).at(0)?.outcome).toBe("已丢弃");
   });
 
   it("marks tasks a restart cut short", async () => {

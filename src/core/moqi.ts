@@ -290,6 +290,7 @@ export class Moqi {
       files: result.files,
       stat: result.stat,
       ...(result.error && { error: result.error }),
+      ...(result.head && { head: result.head }),
     });
     void this.offer(
       codeOffer(t.task, result, this.options.code?.label(t.task.agent) ?? t.task.agent, this.clock.now()),

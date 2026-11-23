@@ -7,6 +7,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { lastSegment } from "../../core/code.js";
+import { seenOffers } from "../../core/feed.js";
 import { FACT_KINDS, isFaded } from "../../core/memory.js";
 import { canSeeImages, openAICompatible } from "../../core/model.js";
 import { describeSchedule } from "../../core/schedule.js";
@@ -267,6 +268,7 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
               title: idea.title,
               value: idea.value,
               outcome: verdict ? `${outcome} · ${verdict}` : outcome,
+              offerId: idea.offerId ?? null,
             };
           }),
         }));
@@ -312,6 +314,21 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
         lastStudy: moqi.state.studies.at(-1) ?? null,
         messages,
         offers,
+        history: seenOffers(moqi.state, now).map((s) => ({
+          id: s.record.offer.id,
+          kind: s.record.offer.kind,
+          title: s.record.offer.title,
+          body: s.record.offer.body,
+          links: s.record.offer.links ?? [],
+          at: s.record.offer.createdAt,
+          decidedAt: s.decidedAt,
+          outcome: s.outcome,
+          ...(s.task && {
+            taskId: s.task.task.id,
+            stat: s.task.stat ?? "",
+            canDiff: s.task.status === "merged" && s.task.head !== undefined,
+          }),
+        })),
         facts,
         watches,
         todos,
@@ -565,7 +582,9 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
     "GET /api/code/diff": async (_body, url) => {
       const t = home.moqi.state.codeTasks.get(url.searchParams.get("id") ?? "");
       if (!t) throw new HttpError(404, "没有这个任务");
-      return { diff: await home.code.diff(t.task) };
+      if (t.status === "discarded") throw new HttpError(409, "这个任务丢弃了，改动没有留下");
+      if (t.status === "merged" && !t.head) throw new HttpError(409, "这个任务合并前没记下提交，看不了改动");
+      return { diff: await home.code.diff(t.task, t.status === "merged" ? t.head : undefined) };
     },
 
     "POST /api/code/stop": (body) => {

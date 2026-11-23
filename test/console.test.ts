@@ -443,8 +443,8 @@ describe("console: moqi thinking", () => {
     expect(news.links).toEqual([{ title: "深圳明天暴雨", url: "https://feed.test/rain" }]);
     expect(state.thoughts[0].trigger).toBe("user");
     expect(state.thoughts[0].ideas).toEqual([
-      { type: "ask", title: "你一般几点下班？", value: 0.4, outcome: "不急，放进动态" },
-      { type: "world", title: "深圳明天暴雨", value: 0.3, outcome: "不急，放进动态" },
+      { type: "ask", title: "你一般几点下班？", value: 0.4, outcome: "不急，放进动态", offerId: question.id },
+      { type: "world", title: "深圳明天暴雨", value: 0.3, outcome: "不急，放进动态", offerId: news.id },
     ]);
 
     expect((await api("POST", "/api/answer", { id: question.id, text: "一般 7 点" })).data.message).toBe(
@@ -624,8 +624,14 @@ describe("console: coding agents", () => {
     expect((await api("GET", `/api/code/diff?id=${task?.id}`)).data.diff).toContain("+hello");
     expect((await api("POST", "/api/code/stop", { id: task?.id })).status).toBe(409);
     expect((await api("POST", "/api/code/discard", { id: task?.id })).data.message).toMatch(/^丢弃了 moqi\//);
+    expect((await api("GET", `/api/code/diff?id=${task?.id}`)).status).toBe(409);
     const after = (await api("GET", "/api/state")).data;
     expect(after.code[0].status).toBe("discarded");
+    expect(after.history.find((o: { kind: string }) => o.kind === "code.done")).toMatchObject({
+      outcome: "已丢弃",
+      taskId: task?.id,
+      canDiff: false,
+    });
     expect(after.offers.filter((o: { kind: string }) => o.kind === "code.done")).toEqual([]);
 
     const notRepo = mkdtempSync(join(tmpdir(), "moqi-plain-"));

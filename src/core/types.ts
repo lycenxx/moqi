@@ -213,8 +213,9 @@ export type EventBody =
       files: readonly string[];
       stat: string;
       error?: string;
+      head?: string;
     }
-  | { type: "code.merged"; taskId: string }
+  | { type: "code.merged"; taskId: string; into?: string }
   | { type: "code.discarded"; taskId: string }
   | { type: "kind.unmuted"; kind: string }
   | { type: "lesson.learned"; lesson: Lesson }

@@ -38,6 +38,8 @@ export interface OfferRecord {
   reason?: string;
   dropped?: boolean;
   verdict?: Verdict;
+  /** When the user reacted. */
+  decidedAt?: number;
 }
 
 export interface Study {
@@ -59,6 +61,10 @@ export interface CodeTaskState {
   readonly stat?: string;
   readonly error?: string;
   readonly finishedAt?: number;
+  /** The commit moqi made, when there were changes. */
+  readonly head?: string;
+  /** The branch it was merged into. */
+  readonly into?: string;
 }
 
 export interface Thought {
@@ -219,6 +225,7 @@ export class State {
         const r = this.offers.get(e.offerId);
         if (!r || r.verdict) break;
         r.verdict = e.verdict;
+        r.decidedAt = e.at;
         this.feedbackCount++;
         const k = this.kind(r.offer.kind);
         if (e.verdict === "accepted") {
@@ -328,14 +335,19 @@ export class State {
           files: e.files,
           stat: e.stat,
           ...(e.error && { error: e.error }),
+          ...(e.head && { head: e.head }),
           finishedAt: e.at,
         });
         break;
       }
-      case "code.merged":
+      case "code.merged": {
+        const t = this.codeTasks.get(e.taskId);
+        if (t) this.codeTasks.set(e.taskId, { ...t, status: "merged", ...(e.into && { into: e.into }) });
+        break;
+      }
       case "code.discarded": {
         const t = this.codeTasks.get(e.taskId);
-        if (t) this.codeTasks.set(e.taskId, { ...t, status: e.type === "code.merged" ? "merged" : "discarded" });
+        if (t) this.codeTasks.set(e.taskId, { ...t, status: "discarded" });
         break;
       }
       case "todo.reminded": {

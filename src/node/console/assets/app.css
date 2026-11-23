@@ -1222,6 +1222,14 @@ input.short {
   margin: 0;
 }
 
+.section-head .hint {
+  margin: 0;
+}
+
+#history-head {
+  margin-bottom: 12px;
+}
+
 .think-status {
   margin: 4px 0 12px;
 }
@@ -1531,4 +1539,52 @@ input.short {
     /* biome-ignore lint/complexity/noImportantStyles: the user's own setting wins over every animation */
     animation: none !important;
   }
+}
+
+.card.seen {
+  border-style: dashed;
+  background: transparent;
+}
+
+.outcome {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.outcome.good {
+  color: var(--accent);
+}
+
+.outcome svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.4;
+}
+
+.card.flash {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.linkish {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+
+.linkish:hover {
+  text-decoration-color: var(--accent);
+}
+
+.more {
+  align-self: center;
+  margin-top: 8px;
 }

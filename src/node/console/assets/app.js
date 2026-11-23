@@ -49,6 +49,7 @@ function greeting(now = new Date()) {
 const ICONS = {
   trash: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6",
   x: "M18 6 6 18M6 6l12 12",
+  check: "M5 12l5 5L19 7",
 };
 
 let state = null;
@@ -68,6 +69,8 @@ let thoughtsKey = "";
 let memoryKey = "";
 let todosKey = "";
 let codeKey = "";
+let historyKey = "";
+let historyShown = 10;
 const drafts = new Map(); // offer id -> what the user has typed so far
 const MAX_IMAGES = 4;
 const MAX_EDGE = 2048;
@@ -505,7 +508,11 @@ function renderFeed() {
     if (state.offers.length === 0) {
       list.append(h("p", { class: "none", text: "现在没有需要你的事。moqi 有话想说时，会先放在这里。" }));
     }
-    for (const o of state.offers) list.append(offerCard(o));
+    for (const o of state.offers) {
+      const card = offerCard(o);
+      card.id = `offer-${o.id}`;
+      list.append(card);
+    }
     for (const id of drafts.keys()) if (!state.offers.some((o) => o.id === id)) drafts.delete(id);
     const box = typing && list.querySelector(`textarea[data-offer="${CSS.escape(typing)}"]`);
     if (box) {
@@ -514,6 +521,7 @@ function renderFeed() {
     }
   }
   refreshTimes(list);
+  renderHistory();
   renderThoughts();
 }
 
@@ -524,6 +532,115 @@ function timeOf(at) {
 /** Relative times ("3 分钟前") move on without rebuilding anything. */
 function refreshTimes(root) {
   for (const el of root.querySelectorAll("[data-at]")) el.textContent = when(Number(el.dataset.at));
+}
+
+const hostOf = (url) => {
+  try {
+    return new URL(url).host.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+};
+
+/** Shows or hides a coding task's changes under its card. */
+function diffToggle(taskId, changes) {
+  return async (e) => {
+    const button = e.currentTarget;
+    if (!changes.hidden) {
+      changes.hidden = true;
+      button.textContent = "看改动";
+      return;
+    }
+    button.disabled = true;
+    try {
+      const { diff } = await api("GET", `/api/code/diff?id=${encodeURIComponent(taskId)}`);
+      changes.textContent = diff || "（没有改动）";
+      changes.hidden = false;
+      button.textContent = "收起改动";
+    } catch (error) {
+      toast(error.message);
+    }
+    button.disabled = false;
+  };
+}
+
+function seenCard(o) {
+  const links = o.links.filter((l) => /^https?:\/\//i.test(l.url));
+  const changes = h("pre", { class: "ask-details", hidden: true });
+  const good = /^(已合并|好|有用|完成了|回答了)/.test(o.outcome);
+  return h(
+    "article",
+    { class: "card seen", id: `offer-${o.id}` },
+    h(
+      "div",
+      { class: "card-head" },
+      h("h3", { class: "card-title", text: o.title }),
+      h("span", { class: "card-time", "data-at": String(o.at), text: when(o.at) }),
+    ),
+    o.body ? h("p", { class: "card-body", text: o.body }) : null,
+    links.length
+      ? h(
+          "div",
+          { class: "link-cards" },
+          links.map((l) =>
+            h(
+              "a",
+              { class: "link-card", href: l.url, target: "_blank", rel: "noopener noreferrer" },
+              h("span", { class: "link-title", text: l.title }),
+              h("span", { class: "link-host", text: hostOf(l.url) }),
+            ),
+          ),
+        )
+      : null,
+    changes,
+    h(
+      "div",
+      { class: "actions" },
+      h(
+        "span",
+        { class: `outcome${good ? " good" : ""}` },
+        good ? icon("check") : null,
+        `${o.outcome} · `,
+        timeOf(o.decidedAt),
+      ),
+      h("span", { class: "spacer" }),
+      o.canDiff
+        ? h("button", { type: "button", class: "btn", text: "看改动", onclick: diffToggle(o.taskId, changes) })
+        : null,
+    ),
+  );
+}
+
+function renderHistory() {
+  const items = state.history || [];
+  $("history-head").hidden = items.length === 0;
+  $("history-count").textContent = `最近 30 天 · ${items.length} 条`;
+  const key = JSON.stringify([items, historyShown]);
+  if (key !== historyKey) {
+    historyKey = key;
+    $("history").replaceChildren(...items.slice(0, historyShown).map(seenCard));
+  }
+  $("history-more").hidden = items.length <= historyShown;
+  refreshTimes($("history"));
+}
+$("history-more").addEventListener("click", () => {
+  historyShown += 20;
+  renderHistory();
+});
+
+/** Scrolls to the card an idea became, opening more of "看过的" when it is further down. */
+function jumpTo(offerId) {
+  const index = (state.history || []).findIndex((o) => o.id === offerId);
+  if (index >= historyShown) {
+    historyShown = index + 1;
+    renderHistory();
+  }
+  const card = document.getElementById(`offer-${offerId}`);
+  if (!card) return;
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  card.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "center" });
+  card.classList.add("flash");
+  setTimeout(() => card.classList.remove("flash"), 2000);
 }
 
 function offerCard(o) {
@@ -557,24 +674,6 @@ function offerCard(o) {
   if (o.kind === "code.done") {
     const task = (state.code || []).find((t) => t.id === o.taskId);
     const changes = h("pre", { class: "ask-details", hidden: true });
-    const look = async (e) => {
-      const button = e.currentTarget;
-      if (!changes.hidden) {
-        changes.hidden = true;
-        button.textContent = "看改动";
-        return;
-      }
-      button.disabled = true;
-      try {
-        const { diff } = await api("GET", `/api/code/diff?id=${encodeURIComponent(o.taskId)}`);
-        changes.textContent = diff || "（没有改动）";
-        changes.hidden = false;
-        button.textContent = "收起改动";
-      } catch (error) {
-        toast(error.message);
-      }
-      button.disabled = false;
-    };
     const changed = !!task && task.files > 0;
     const open = !!task && (task.status === "done" || task.status === "failed");
     return h(
@@ -594,7 +693,9 @@ function offerCard(o) {
               onclick: respond("accepted"),
             })
           : null,
-        changed ? h("button", { type: "button", class: "btn", text: "看改动", onclick: look }) : null,
+        changed
+          ? h("button", { type: "button", class: "btn", text: "看改动", onclick: diffToggle(o.taskId, changes) })
+          : null,
         h("span", { class: "spacer" }),
         open
           ? removeButton("丢弃这个任务的分支", "确定丢弃", () => api("POST", "/api/code/discard", { id: o.taskId }))
@@ -685,7 +786,7 @@ function renderThoughts() {
   else if (last) status.textContent = `上次是${when(last.at)}。每两小时、以及每次聊完，它都会自己想一想。`;
   else status.textContent = "还没想过。每两小时、以及每次聊完，它都会自己想一想。";
   const list = $("thoughts");
-  const key = JSON.stringify(state.thoughts);
+  const key = JSON.stringify([state.thoughts, state.offers.map((o) => o.id), (state.history || []).map((o) => o.id)]);
   if (key === thoughtsKey) return refreshTimes(list);
   thoughtsKey = key;
   list.replaceChildren();
@@ -712,16 +813,17 @@ function renderThoughts() {
       );
     }
     for (const idea of t.ideas) {
+      const known =
+        idea.offerId &&
+        (state.offers.some((o) => o.id === idea.offerId) || (state.history || []).some((o) => o.id === idea.offerId));
+      const title = known
+        ? h("button", { type: "button", class: "linkish", text: idea.title, onclick: () => jumpTo(idea.offerId) })
+        : idea.title;
       list.append(
         h(
           "div",
           { class: "thought" },
-          h(
-            "p",
-            { class: "item-text" },
-            h("span", { class: "tag", text: IDEA_LABEL[idea.type] || idea.type }),
-            idea.title,
-          ),
+          h("p", { class: "item-text" }, h("span", { class: "tag", text: IDEA_LABEL[idea.type] || idea.type }), title),
           h("p", { class: "item-meta" }, timeOf(t.at), ` · ${idea.outcome}`),
         ),
       );

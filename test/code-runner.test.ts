@@ -129,6 +129,9 @@ describe("coding tasks on this computer", () => {
 
     expect(s.runner.currentBranch(s.project)).toBe("main");
     expect(await s.runner.merge(task)).toBe(`已合并到 main：${task.branch}`);
+    const head = s.finished[0]?.result.head;
+    expect(head).toMatch(/^[0-9a-f]{40}$/);
+    expect(await s.runner.diff(task, head)).toContain("+hello"); // the branch is gone, the commit is not
     expect(git(s.project, "log", "-1", "--format=%an %P").split(" ")).toHaveLength(3);
     expect(git(s.project, "log", "-1", "--format=%an")).toBe("moqi\n");
     expect(readFileSync(join(s.project, "NEW.md"), "utf8")).toBe("hello\n");
