@@ -44,6 +44,17 @@ describe("file event store", () => {
     expect(reopened.all()).toHaveLength(1);
     expect(reopened.skipped).toBe(1);
   });
+  it("keeps the first event written after a torn line", () => {
+    const dir = tmp();
+    const path = join(dir, "events.jsonl");
+    writeFileSync(path, '{"type":"message","role":"user","text":"a","id":"e1","at":1}\n{"type":"mess');
+    fileEventStore(path).append({ type: "message", role: "user", text: "after", id: "e2", at: 2 });
+    expect(
+      fileEventStore(path)
+        .all()
+        .map((e) => e.id),
+    ).toEqual(["e1", "e2"]);
+  });
 });
 
 describe("single-process lock", () => {
