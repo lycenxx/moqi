@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Images in the conversation: paste, drop or pick up to 4 images; moqi checks once whether the model can see them (it shows the model a red square) and greys out the button when it cannot. Images stay under `~/.moqi/media` and go only to your model; the last three messages with images keep them. Answers are formatted: lists, bold, code with a copy button, tables and link cards, with no HTML and nothing loaded from outside. Images that tools bring back (browser and macOS screenshots, MCP servers) show under the answer and can be opened large.
+- Console style: warm paper colours, the teal kept, more room, a greeting with three examples to start from.
+- Feed: cards you handled stay in "看过的" for 30 days (at most 100) with their links and what became of them; a merged coding task can still show its changes; ideas in "moqi 在想" lead to their cards.
 - Fewer questions: a site can be allowed for good ("以后都允许"), after which opening, clicking and paging there are not asked (typing, forms, uploads and scripts still are); remembered sites are listed in Settings and can be removed. Ordinary actions (new folder, new file, move, rename, clipboard, watches, removing todos) can be set to run without asking in Settings. Merging a finished coding task takes one tap on its card, which names the branch. Browser tools set to "放开" keep to the sites already granted after reading a page, instead of asking at every click. In `moqi chat`, `a` answers "以后都允许".
 
 ## [0.6.1] - 2026-11-23
