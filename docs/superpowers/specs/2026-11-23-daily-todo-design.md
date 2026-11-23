@@ -51,14 +51,14 @@ export interface Todo {
 
 ### 3.2 事件（加进 `EventBody`）
 
-| 事件            | 字段                                                  | 作用                                                         |
-| --------------- | ----------------------------------------------------- | ------------------------------------------------------------ |
-| `todo.added`    | `todo: Todo`                                          | 新建                                                         |
+| 事件            | 字段                                                        | 作用                                                                                            |
+| --------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `todo.added`    | `todo: Todo`                                                | 新建                                                                                            |
 | `todo.updated`  | `todoId`，以及 `text?`、`day?`、`remindAt?: number \| null` | 改文字、改期、改提醒时间。`remindAt` 只要出现在事件里，就清掉 `remindedAt`；`null` 表示去掉提醒 |
-| `todo.done`     | `todoId`                                              | 勾掉，记 `doneAt`                                            |
-| `todo.undone`   | `todoId`                                              | 撤销勾选，清掉 `doneAt`                                      |
-| `todo.removed`  | `todoId`                                              | 删除，记 `removedAt`                                         |
-| `todo.reminded` | `todoId`                                              | 提醒已发出，记 `remindedAt`                                  |
+| `todo.done`     | `todoId`                                                    | 勾掉，记 `doneAt`                                                                               |
+| `todo.undone`   | `todoId`                                                    | 撤销勾选，清掉 `doneAt`                                                                         |
+| `todo.removed`  | `todoId`                                                    | 删除，记 `removedAt`                                                                            |
+| `todo.reminded` | `todoId`                                                    | 提醒已发出，记 `remindedAt`                                                                     |
 
 `State` 折叠出 `readonly todos = new Map<string, Todo>()`。`todo.done` 和 `todo.removed` 也计入 `feedbackCount`：完成和删掉都是用户的反应，攒够了就触发复盘（第 12.3 节）。
 
@@ -127,13 +127,13 @@ export interface Todo {
 
 ## 5. 工具（`tools.ts`）
 
-| 工具          | 参数                                                                                     | `effect` / 自主级别           |
-| ------------- | ---------------------------------------------------------------------------------------- | ----------------------------- |
+| 工具          | 参数                                                                                                   | `effect` / 自主级别              |
+| ------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------- |
 | `todo_add`    | `text`；`day?`：`today`、`tomorrow` 或 `YYYY-MM-DD`，默认今天；`at?`：`HH:MM`；`inMinutes?`：1 到 1440 | write，`start`/`cap` 都是 `auto` |
-| `todo_list`   | 无                                                                                       | read                          |
-| `todo_done`   | `id`                                                                                     | write，`auto`                 |
-| `todo_update` | `id`，以及要改的 `text?`、`day?`、`at?: string \| null`、`inMinutes?`                     | write，`auto`                 |
-| `todo_remove` | `id`                                                                                     | write，默认 `suggest`（先问） |
+| `todo_list`   | 无                                                                                                     | read                             |
+| `todo_done`   | `id`                                                                                                   | write，`auto`                    |
+| `todo_update` | `id`，以及要改的 `text?`、`day?`、`at?: string \| null`、`inMinutes?`                                  | write，`auto`                    |
+| `todo_remove` | `id`                                                                                                   | write，默认 `suggest`（先问）    |
 
 规则：
 
@@ -148,13 +148,13 @@ export interface Todo {
 
 ### 6.1 接口（`src/node/console/server.ts`）
 
-| 接口                     | 请求体                         | 说明                                               |
-| ------------------------ | ------------------------------ | -------------------------------------------------- |
-| `GET /api/state`         |                                | 增加 `todos`：今天、以后、7 天内完成的，带已拖天数 |
-| `POST /api/todo/add`     | `{ text, day?, at?, by? }`     | 和 `todo_add` 用同一套校验                         |
-| `POST /api/todo/done`    | `{ id }`                       |                                                    |
-| `POST /api/todo/undone`  | `{ id }`                       |                                                    |
-| `POST /api/todo/remove`  | `{ id }`                       | 控制台上点删除就是用户的明确操作，不再二次确认     |
+| 接口                    | 请求体                     | 说明                                               |
+| ----------------------- | -------------------------- | -------------------------------------------------- |
+| `GET /api/state`        |                            | 增加 `todos`：今天、以后、7 天内完成的，带已拖天数 |
+| `POST /api/todo/add`    | `{ text, day?, at?, by? }` | 和 `todo_add` 用同一套校验                         |
+| `POST /api/todo/done`   | `{ id }`                   |                                                    |
+| `POST /api/todo/undone` | `{ id }`                   |                                                    |
+| `POST /api/todo/remove` | `{ id }`                   | 控制台上点删除就是用户的明确操作，不再二次确认     |
 
 参数不对时返回 400，带和工具一样的中文原因。
 
