@@ -32,8 +32,13 @@ function history(events: readonly MoqiEvent[], limit: number): ChatMessage[] {
   return messages.slice(-limit);
 }
 
-/** One user turn: answer with tools, then learn on the side. */
-export async function chatTurn(moqi: Moqi, text: string, signal?: AbortSignal): Promise<string> {
+/** One user turn: answer with tools, then learn on the side. `fromAgent`: another agent wrote this message. */
+export async function chatTurn(
+  moqi: Moqi,
+  text: string,
+  signal?: AbortSignal,
+  how: { readonly fromAgent?: boolean } = {},
+): Promise<string> {
   const model = moqi.model;
   if (!model) throw new Error("moqi has no model; set one to chat (briefings and watches work without it)");
   const past = history(moqi.store.all(), AGENT.historyMessages);
@@ -45,6 +50,8 @@ export async function chatTurn(moqi: Moqi, text: string, signal?: AbortSignal): 
     ...past,
     { role: "user", content: text },
   ];
+  // Once this turn has read anything from outside moqi, a dangerous action is asked again, unlocked or not.
+  let tainted = how.fromAgent === true;
   let answer = "";
   for (let round = 0; round <= AGENT.maxToolRounds; round++) {
     const reply = await model.chat({
@@ -66,7 +73,9 @@ export async function chatTurn(moqi: Moqi, text: string, signal?: AbortSignal): 
         messages.push({ role: "tool", toolCallId: call.id, content: "参数不是合法的 JSON" });
         continue;
       }
-      const result = await moqi.callTool(call.name, args, { byUser: true });
+      const result = await moqi.callTool(call.name, args, { byUser: true, tainted });
+      const used = moqi.tool(call.name);
+      if (used && !used.local) tainted = true;
       messages.push({ role: "tool", toolCallId: call.id, content: result });
     }
   }

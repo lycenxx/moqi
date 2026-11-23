@@ -1,5 +1,5 @@
 import { chatTurn, learn } from "./agent.js";
-import { needsConfirmation, promotionDue } from "./autonomy.js";
+import { guarded, needsConfirmation, promotionDue } from "./autonomy.js";
 import { type Briefing, composeBriefing } from "./briefing.js";
 import { normalize, type RememberInput, rememberEvents } from "./memory.js";
 import type { ChatModel } from "./model.js";
@@ -23,6 +23,7 @@ import {
   type Offer,
   type Surface,
   systemClock,
+  type ToolPolicy,
   type Verdict,
 } from "./types.js";
 import { runWatch } from "./watch.js";
@@ -45,8 +46,8 @@ export interface MoqiOptions {
   readonly todoReviewAt?: string | null;
   /** Shows an offer: a system notification for "notify", a quiet entry for "feed". */
   readonly deliver?: (offer: Offer, surface: Surface) => void | Promise<void>;
-  /** Asks the user before an action that has not earned trust yet. Without it, such actions are refused. */
-  readonly confirm?: (question: string) => Promise<boolean>;
+  /** Asks the user before an action that has not earned trust yet. `details`: exactly what a dangerous one does. Without it, such actions are refused. */
+  readonly confirm?: (question: string, details?: string) => Promise<boolean>;
   /** Think about the user on its own between conversations (needs a model). Default true. */
   readonly reflect?: boolean;
   /** Learn on its own while the user is away: lessons from feedback, notes from articles. Default true. */
@@ -68,6 +69,7 @@ export class Moqi {
   readonly plugins: readonly Plugin[];
   private readonly tools = new Map<string, Tool>();
   private readonly background = new Set<Promise<unknown>>();
+  private readonly sources = new Map<string, string>();
   private thinking: Promise<Idea[]> | undefined;
   private studying: Promise<number> | undefined;
   private readonly options: MoqiOptions;
@@ -90,9 +92,14 @@ export class Moqi {
       isReadTool: (name) => this.isWatchable(name),
       readTools: () => [...this.tools.values()].filter((t) => this.isWatchable(t.name)).map((t) => t.name),
     };
-    for (const tool of [...builtinTools(kernel), ...this.plugins.flatMap((p) => p.tools ?? [])]) {
+    const owned: [Tool, string][] = [
+      ...builtinTools(kernel).map((t): [Tool, string] => [t, "moqi"]),
+      ...this.plugins.flatMap((p) => (p.tools ?? []).map((t): [Tool, string] => [t, t.source ?? p.name])),
+    ];
+    for (const [tool, source] of owned) {
       if (this.tools.has(tool.name)) throw new Error(`Two tools are named "${tool.name}"`);
       this.tools.set(tool.name, tool);
+      this.sources.set(tool.name, source);
     }
   }
 
@@ -115,9 +122,9 @@ export class Moqi {
     while (this.background.size > 0) await Promise.all([...this.background]);
   }
 
-  /** One conversation turn. Learns about the user on the side every few turns. */
-  chat(text: string, signal?: AbortSignal): Promise<string> {
-    return chatTurn(this, text, signal);
+  /** One conversation turn. `fromAgent`: another agent wrote it, so it counts as outside content. */
+  chat(text: string, signal?: AbortSignal, how?: { readonly fromAgent?: boolean }): Promise<string> {
+    return chatTurn(this, text, signal, how);
   }
 
   /** Read tools a watch may call on a schedule. */
@@ -132,6 +139,31 @@ export class Moqi {
 
   tool(name: string): Tool | undefined {
     return this.tools.get(name);
+  }
+
+  /** Who provides a tool: an MCP server or A2A agent, a plugin, or "moqi" for its own. */
+  sourceOf(name: string): string {
+    return this.sources.get(name) ?? "moqi";
+  }
+
+  /** Dangerous tools and what the user decided about each, for the settings. */
+  dangerousTools(): { name: string; source: string; description: string; policy: ToolPolicy }[] {
+    return [...this.tools.values()]
+      .filter((t) => t.danger)
+      .map((t) => ({
+        name: t.name,
+        source: this.sourceOf(t.name),
+        description: t.description,
+        policy: this.state.toolPolicies.get(t.name) ?? "ask",
+      }));
+  }
+
+  /** The user's decision about one dangerous tool. Only the user makes it: no tool and no offer calls this. */
+  setToolPolicy(name: string, policy: ToolPolicy): string {
+    this.emit({ type: "tool.policy", tool: name, policy });
+    if (policy === "auto") return `以后 ${name} 直接办；这一轮读过外部内容时仍会先问`;
+    if (policy === "normal") return `${name} 按普通动作处理了`;
+    return `${name} 每次都会先问你`;
   }
 
   /** Read tools a watch may use, e.g. for reflection to suggest one. */
@@ -239,7 +271,7 @@ export class Moqi {
   async callTool(
     name: string,
     args: Record<string, unknown>,
-    how: { byUser: boolean; preApproved?: boolean },
+    how: { byUser: boolean; preApproved?: boolean; tainted?: boolean },
   ): Promise<string> {
     const tool = this.tools.get(name);
     if (!tool) return `没有工具 ${name}`;
@@ -250,10 +282,18 @@ export class Moqi {
     const problem = tool.validate?.(parsed.data, ctx);
     if (problem) return `参数不对：${problem}`; // back to the model; never ask the user to approve a broken call
     const policy = actionPolicy(tool);
-    const asked = !how.preApproved && needsConfirmation(this.state, name, policy);
-    if (asked || how.preApproved) {
+    const guard = guarded(this.state, name, policy);
+    // A dangerous action is confirmed with exactly what it does, even when an offer was accepted:
+    // the offer's words are the model's and may not match its action.
+    const offered = how.preApproved === true && guard;
+    const preApproved = how.preApproved === true && !guard;
+    const tainted = how.tainted === true || offered;
+    const asked = !preApproved && needsConfirmation(this.state, name, policy, tainted);
+    if (asked || preApproved) {
       const what = tool.describe?.(parsed.data) ?? describeAction(tool, parsed.data as Record<string, unknown>);
-      const approved = how.preApproved || (await this.ask(`要我${what}吗？`));
+      const question = guard && !tool.describe ? `要我用「${this.sourceOf(name)}」的 ${name} 吗？` : `要我${what}吗？`;
+      const reason = offered ? "offer" : tainted && this.state.toolPolicies.get(name) === "auto" ? "outside" : "danger";
+      const approved = preApproved || (await this.ask(question, guard ? dangerDetails(args, reason) : undefined));
       if (tool.effect === "write") this.emit({ type: "approval", kind: name, approved });
       if (!approved) return "用户没有同意，这一步没做";
     }
@@ -269,8 +309,9 @@ export class Moqi {
     return text;
   }
 
-  private async ask(question: string): Promise<boolean> {
-    return this.options.confirm ? this.options.confirm(question) : false;
+  private async ask(question: string, details?: string): Promise<boolean> {
+    if (!this.options.confirm) return false;
+    return details === undefined ? this.options.confirm(question) : this.options.confirm(question, details);
   }
 
   private async offerPromotion(tool: Tool): Promise<void> {
@@ -566,4 +607,19 @@ function describeAction(tool: Tool, args: Record<string, unknown>): string {
     .map(([k, v]) => `${k}=${String(v)}`)
     .join("，");
   return `执行「${tool.name}」${detail ? `（${detail}）` : ""}`;
+}
+
+const DETAILS_MAX = 2000;
+const WHY = {
+  danger: "这是会改动东西的外部工具，每次都要你确认。",
+  outside: "这一轮读过网页或工具结果，所以再确认一次。",
+  offer: "这是 moqi 提议的动作，确认一下它实际要做的事。",
+} as const;
+
+/** Why a dangerous action is asked, and exactly what it would do. */
+function dangerDetails(args: Record<string, unknown>, reason: keyof typeof WHY): string {
+  const json = JSON.stringify(args, null, 2);
+  const shown =
+    json.length > DETAILS_MAX ? `${json.slice(0, DETAILS_MAX)}\n…还有 ${json.length - DETAILS_MAX} 字没显示` : json;
+  return `${WHY[reason]}\n\n${shown}`;
 }

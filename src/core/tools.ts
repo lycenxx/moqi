@@ -72,6 +72,7 @@ export function builtinTools(k: Kernel): Tool<any>[] {
         contradicts: z.string().optional().describe("id of a remembered fact this replaces"),
       }),
       effect: "write",
+      local: true,
       start: "auto",
       cap: "auto",
       run: (a) => k.remember(a as never),
@@ -81,6 +82,7 @@ export function builtinTools(k: Kernel): Tool<any>[] {
       description: "List what you remember about the user, with ids.",
       input: z.object({}),
       effect: "read",
+      local: true,
       run: () => [...k.state.facts.values()].map((f) => `[${f.id}] ${f.content}`).join("\n") || "（还没有记住任何事）",
     }),
     defineTool({
@@ -88,6 +90,7 @@ export function builtinTools(k: Kernel): Tool<any>[] {
       description: "Forget a remembered fact by id, when the user asks to.",
       input: z.object({ id: z.string() }),
       effect: "write",
+      local: true,
       cap: "suggest",
       describe: ({ id }) => `忘掉「${k.state.facts.get(id)?.content ?? id}」`,
       run: ({ id }) => {
@@ -103,6 +106,7 @@ export function builtinTools(k: Kernel): Tool<any>[] {
         "Keep an eye on something for the user on a schedule (daily weather, a price, a reminder). moqi runs it in the background and speaks up when the result changes, or every time with notify=always.",
       input: WatchInput,
       effect: "write",
+      local: true,
       describe: (a) => {
         try {
           const when = describeSchedule(validateSchedule(a.schedule as Schedule));
@@ -143,6 +147,7 @@ export function builtinTools(k: Kernel): Tool<any>[] {
       description: "List the things you keep an eye on for the user.",
       input: z.object({}),
       effect: "read",
+      local: true,
       run: () =>
         [...k.state.watches.values()]
           .map(
@@ -155,6 +160,7 @@ export function builtinTools(k: Kernel): Tool<any>[] {
       description: "Stop keeping an eye on something, by id.",
       input: z.object({ id: z.string() }),
       effect: "write",
+      local: true,
       describe: ({ id }) => `停掉「${k.state.watches.get(id)?.title ?? id}」`,
       run: ({ id }) => {
         const w = k.state.watches.get(id);
@@ -173,6 +179,7 @@ export function builtinTools(k: Kernel): Tool<any>[] {
         by: z.string().max(40).optional().describe("Leave out"),
       }),
       effect: "write",
+      local: true,
       start: "auto", // the user asked for it, and it is undone with one tap
       cap: "auto",
       describe: (a) => `记下待办「${a.text}」`,
@@ -202,6 +209,7 @@ export function builtinTools(k: Kernel): Tool<any>[] {
       description: "The user's todo list with ids: today (including what was put off), later, and done today.",
       input: z.object({}),
       effect: "read",
+      local: true,
       run: () => {
         const now = k.now();
         const line = (t: Todo) => `[${t.id}] ${describeTodo(t, now)}`;
@@ -225,6 +233,7 @@ export function builtinTools(k: Kernel): Tool<any>[] {
       description: "Mark one of the user's todos done, by id.",
       input: z.object({ id: z.string() }),
       effect: "write",
+      local: true,
       start: "auto",
       cap: "auto",
       describe: ({ id }) => `勾掉「${k.state.todos.get(id)?.text ?? id}」`,
@@ -241,6 +250,7 @@ export function builtinTools(k: Kernel): Tool<any>[] {
       description: "Mark a done todo as not done again.",
       input: z.object({ id: z.string() }),
       effect: "write",
+      local: true,
       start: "auto",
       cap: "auto",
       hidden: true, // the console's checkbox; the model has todo_add for anything new
@@ -263,6 +273,7 @@ export function builtinTools(k: Kernel): Tool<any>[] {
         inMinutes: When.inMinutes,
       }),
       effect: "write",
+      local: true,
       start: "auto",
       cap: "auto",
       describe: ({ id }) => `改待办「${k.state.todos.get(id)?.text ?? id}」`,
@@ -289,6 +300,7 @@ export function builtinTools(k: Kernel): Tool<any>[] {
       description: "Delete one of the user's todos by id, when they no longer mean to do it.",
       input: z.object({ id: z.string() }),
       effect: "write",
+      local: true,
       describe: ({ id }) => `删掉待办「${k.state.todos.get(id)?.text ?? id}」`,
       validate: ({ id }) => todoProblem(k, id, false),
       run: ({ id }) => {
@@ -302,6 +314,7 @@ export function builtinTools(k: Kernel): Tool<any>[] {
       description: "Change how freely moqi may do one kind of action.",
       input: z.object({ kind: z.string(), level: z.enum(LEVELS as [string, ...string[]]) }),
       effect: "write",
+      local: true,
       hidden: true,
       run: ({ kind, level }) => {
         k.emit({ type: "level.changed", kind, level: level as never });
@@ -313,6 +326,7 @@ export function builtinTools(k: Kernel): Tool<any>[] {
       description: "Settle a contradiction in the user model.",
       input: z.object({ id: z.string(), keep: z.enum(["old", "new"]) }),
       effect: "write",
+      local: true,
       hidden: true,
       run: ({ id, keep }) => {
         const c = k.state.conflicts.get(id);

@@ -44,6 +44,7 @@ export interface Harness {
   clock: ReturnType<typeof fakeClock>;
   delivered: { offer: Offer; surface: Surface }[];
   asked: string[];
+  details: (string | undefined)[];
 }
 
 export function harness(
@@ -52,6 +53,7 @@ export function harness(
   const clock = fakeClock(options.start);
   const delivered: Harness["delivered"] = [];
   const asked: string[] = [];
+  const details: Harness["details"] = [];
   const answer = options.answer ?? true;
   const moqi = new Moqi({
     clock,
@@ -59,11 +61,12 @@ export function harness(
     reflect: false, // reflection has its own tests; elsewhere it would consume scripted replies
     study: false,
     deliver: (offer, surface) => void delivered.push({ offer, surface }),
-    confirm: async (q) => {
+    confirm: async (q, d) => {
       asked.push(q);
+      details.push(d);
       return typeof answer === "function" ? answer(q) : answer;
     },
     ...options,
   });
-  return { moqi, clock, delivered, asked };
+  return { moqi, clock, delivered, asked, details };
 }
