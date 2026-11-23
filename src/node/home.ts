@@ -14,6 +14,8 @@ import { weatherPlugin } from "../plugins/weather.js";
 import { type AgentsPluginOptions, agentsPlugin } from "./agents.js";
 import { type Config, expandHome, loadConfig, readConfigFile, saveConfig } from "./config.js";
 import { acquireLock, fileEventStore } from "./file-store.js";
+import { filesPlugin } from "./files.js";
+import { macPlugin } from "./mac.js";
 import { McpHub, type McpServerStatus } from "./mcp-client.js";
 import { desktopNotifier, type Notifier } from "./notify.js";
 
@@ -67,7 +69,11 @@ export interface Home {
   close(): void;
 }
 
-export function pluginsFrom(config: Config, fetchImpl?: typeof fetch): Plugin[] {
+export function pluginsFrom(
+  config: Config,
+  fetchImpl?: typeof fetch,
+  platform: NodeJS.Platform = process.platform,
+): Plugin[] {
   const plugins: Plugin[] = [];
   if (config.weather) plugins.push(weatherPlugin({ ...config.weather, ...(fetchImpl && { fetch: fetchImpl }) }));
   if (config.calendar) {
@@ -77,6 +83,8 @@ export function pluginsFrom(config: Config, fetchImpl?: typeof fetch): Plugin[] 
   if (config.a2a && config.a2a.agents.length > 0) plugins.push(a2aPlugin(config.a2a.agents, fetchImpl));
   if (config.news && config.news.feeds.length > 0)
     plugins.push(newsPlugin({ feeds: config.news.feeds, ...(fetchImpl && { fetch: fetchImpl }) }));
+  if (config.files) plugins.push(filesPlugin({ folders: config.files.folders }));
+  if (config.mac && platform === "darwin") plugins.push(macPlugin({ shortcuts: config.mac.shortcuts }));
   return plugins;
 }
 

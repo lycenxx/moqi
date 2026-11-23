@@ -16,6 +16,7 @@ import { connectAgent, disconnectAgent, findAgents, importableServers } from "..
 import type { Config } from "../config.js";
 import { ConfigSchema, expandHome, loadConfig, readConfigFile, saveConfig } from "../config.js";
 import type { Home } from "../home.js";
+import { listShortcuts } from "../mac.js";
 import { browserPreset } from "../presets.js";
 import { A2A_PATH, AGENT_CARD_PATH, agentCard, handleA2A } from "./a2a.js";
 import { CONSOLE_HOST, consoleUrl } from "./info.js";
@@ -89,6 +90,8 @@ export interface ConsoleOptions {
   readonly a2aKey?: string;
   /** moqi's version, for the A2A agent card. */
   readonly version?: string;
+  /** Lists the user's shortcuts; tests pass a fake. */
+  readonly shortcuts?: () => Promise<string[] | undefined>;
 }
 
 export interface Console {
@@ -530,6 +533,7 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
         config: { ...file, model: file.model ? model : null },
         hasKey: !!apiKey,
         newsPresets: NEWS_FEEDS,
+        platform: process.platform,
         env: { model: !!(env.MOQI_BASE_URL && env.MOQI_MODEL), apiKey: !!env.MOQI_API_KEY },
       };
     },
@@ -554,9 +558,23 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
           `有 ${issues.length} 处要改：${issues.map((i) => `${i.path} ${i.message}`).join("；")}`,
         );
       }
+      for (const folder of parsed.data.files?.folders ?? []) {
+        let dir = false;
+        try {
+          dir = statSync(expandHome(folder)).isDirectory();
+        } catch {
+          dir = false;
+        }
+        if (!dir) throw new HttpError(400, `文件夹「${folder}」不存在，或者不是文件夹`);
+      }
       saveConfig(home.dir, parsed.data);
       await home.reconfigure(loadConfig(home.dir, env));
       return { ok: true };
+    },
+
+    "GET /api/shortcuts": async () => {
+      const list = await (options.shortcuts ?? (() => listShortcuts()))();
+      return { available: list !== undefined, shortcuts: list ?? [] };
     },
 
     "POST /api/model/test": async (body) => {

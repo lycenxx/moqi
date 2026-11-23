@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineTool, type Plugin } from "../src/core/plugin.js";
 import { readConfigFile } from "../src/node/config.js";
-import { type Console, confirmQueue, startConsole } from "../src/node/console/server.js";
+import { type Console, type ConsoleOptions, confirmQueue, startConsole } from "../src/node/console/server.js";
 import { type Home, openHome } from "../src/node/home.js";
 
 type Reply = { content?: string; tool_calls?: { id: string; function: { name: string; arguments: string } }[] };
@@ -42,6 +42,7 @@ async function start(
   config: Record<string, unknown>,
   model: Parameters<typeof fakeNet>[0] = () => ({ content: "好" }),
   extra: Plugin[] = [],
+  consoleExtra: Partial<ConsoleOptions> = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "moqi-console-"));
   writeFileSync(join(dir, "config.json"), JSON.stringify(config));
@@ -60,7 +61,15 @@ async function start(
       platform: "darwin",
     },
   });
-  const ui = await startConsole({ home, asker, token: "t".repeat(32), port: 0, fetch: net.fetch, env: {} });
+  const ui = await startConsole({
+    home,
+    asker,
+    token: "t".repeat(32),
+    port: 0,
+    fetch: net.fetch,
+    env: {},
+    ...consoleExtra,
+  });
   open.push({ home, ui });
   const api = async (method: string, path: string, body?: unknown, token = "t".repeat(32)) => {
     const res = await fetch(`http://127.0.0.1:${ui.port}${path}`, {
@@ -478,6 +487,22 @@ describe("console: dangerous tools", () => {
     await api("POST", "/api/confirm", { id: question?.id, yes: true });
     expect((await answering).data.message).toBe("ran ls ~");
     expect(ran).toEqual(["ls ~"]);
+  });
+});
+
+describe("console: abilities", () => {
+  it("checks the folders for files, loads the files plugin, and lists shortcuts", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "moqi-folder-"));
+    const { api } = await start({ briefingAt: null }, undefined, [], { shortcuts: async () => ["早上模式"] });
+    const { config, platform } = (await api("GET", "/api/config")).data;
+    expect(platform).toBe(process.platform);
+    const page = { model: null, briefingAt: null, quiet: config.quiet, dailyBudget: 3, news: { feeds: [] } };
+    const bad = await api("POST", "/api/config", { config: { ...page, files: { folders: ["/no/such/folder"] } } });
+    expect(bad).toMatchObject({ status: 400, data: { error: "文件夹「/no/such/folder」不存在，或者不是文件夹" } });
+    expect((await api("POST", "/api/config", { config: { ...page, files: { folders: [folder] } } })).status).toBe(200);
+    const tools = (await api("GET", "/api/tools")).data.tools as { name: string }[];
+    expect(tools.map((t) => t.name)).toContain("files_trash");
+    expect((await api("GET", "/api/shortcuts")).data).toEqual({ available: true, shortcuts: ["早上模式"] });
   });
 });
 
