@@ -3,6 +3,8 @@ import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
+import { defineTool, type Plugin } from "../src/core/plugin.js";
 import { readConfigFile } from "../src/node/config.js";
 import { type Console, confirmQueue, startConsole } from "../src/node/console/server.js";
 import { type Home, openHome } from "../src/node/home.js";
@@ -39,6 +41,7 @@ const open: { home: Home; ui: Console }[] = [];
 async function start(
   config: Record<string, unknown>,
   model: Parameters<typeof fakeNet>[0] = () => ({ content: "好" }),
+  extra: Plugin[] = [],
 ) {
   const dir = mkdtempSync(join(tmpdir(), "moqi-console-"));
   writeFileSync(join(dir, "config.json"), JSON.stringify(config));
@@ -49,7 +52,8 @@ async function start(
     home: dir,
     notifier: async () => {},
     fetch: net.fetch,
-    confirm: (q) => asker.ask(q),
+    confirm: (q, d) => asker.ask(q, d),
+    extraPlugins: extra,
     agents: {
       home: osHome,
       command: { command: "/usr/bin/node", args: ["/opt/moqi/cli.js", "mcp"] },
@@ -421,6 +425,57 @@ describe("console: what moqi learned", () => {
     expect((await api("POST", "/api/learned/remove", { id: s.notes[0].id })).data.message).toBe("这条笔记删掉了");
     const after = (await api("GET", "/api/state")).data;
     expect(after.lessons.length + after.notes.length).toBe(0);
+  });
+});
+
+describe("console: dangerous tools", () => {
+  it("lists them, lets the user unlock one, and shows what a confirmation is about", async () => {
+    const ran: string[] = [];
+    const term: Plugin = {
+      name: "term",
+      tools: [
+        defineTool({
+          name: "shell",
+          description: "Run a shell command",
+          input: z.object({ cmd: z.string() }),
+          effect: "write",
+          danger: true,
+          source: "term-server",
+          run: ({ cmd }) => {
+            ran.push(cmd);
+            return `ran ${cmd}`;
+          },
+        }),
+      ],
+    };
+    const { home, api } = await start({ briefingAt: null }, undefined, [term]);
+    expect((await api("GET", "/api/tools")).data.tools).toEqual([
+      { name: "shell", source: "term-server", description: "Run a shell command", policy: "ask" },
+    ]);
+    expect((await api("POST", "/api/tool-policy", { tool: "shell", policy: "yolo" })).status).toBe(400);
+    expect((await api("POST", "/api/tool-policy", { tool: "todo_add", policy: "auto" })).status).toBe(400);
+    expect((await api("POST", "/api/tool-policy", { tool: "shell", policy: "auto" })).status).toBe(200);
+    expect(home.moqi.state.toolPolicies.get("shell")).toBe("auto");
+
+    const offer = await home.moqi.offer({
+      kind: "idea.serve",
+      title: "看看主目录？",
+      body: "",
+      value: 0.5,
+      urgency: "whenever",
+      action: { tool: "shell", args: { cmd: "ls ~" } },
+    });
+    const answering = api("POST", "/api/offer", { id: offer.id, verdict: "accepted" });
+    let question: { id: string; text: string; details?: string } | null = null;
+    for (let i = 0; i < 50 && !question; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+      question = (await api("GET", "/api/state")).data.question;
+    }
+    expect(question?.text).toBe("要我用「term-server」的 shell 吗？");
+    expect(question?.details).toContain('"cmd": "ls ~"');
+    await api("POST", "/api/confirm", { id: question?.id, yes: true });
+    expect((await answering).data.message).toBe("ran ls ~");
+    expect(ran).toEqual(["ls ~"]);
   });
 });
 

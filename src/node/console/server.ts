@@ -31,14 +31,21 @@ const ANSWER_TIMEOUT_MS = 5 * 60_000;
 
 /** Questions moqi asks before an action it has not earned trust for, answered from the page. */
 export interface Asker {
-  ask(question: string): Promise<boolean>;
-  pending(): { readonly id: string; readonly text: string } | undefined;
+  /** `details`: exactly what a dangerous action would do, shown under the question. */
+  ask(question: string, details?: string): Promise<boolean>;
+  pending(): { readonly id: string; readonly text: string; readonly details?: string } | undefined;
   answer(id: string, yes: boolean): boolean;
 }
 
 export function confirmQueue(timeoutMs = ANSWER_TIMEOUT_MS): Asker {
   let current:
-    | { id: string; text: string; resolve: (yes: boolean) => void; timer: ReturnType<typeof setTimeout> }
+    | {
+        id: string;
+        text: string;
+        details?: string;
+        resolve: (yes: boolean) => void;
+        timer: ReturnType<typeof setTimeout>;
+      }
     | undefined;
   let n = 0;
   const settle = (yes: boolean) => {
@@ -49,14 +56,17 @@ export function confirmQueue(timeoutMs = ANSWER_TIMEOUT_MS): Asker {
     resolve(yes);
   };
   return {
-    ask(text) {
+    ask(text, details) {
       settle(false); // only one question at a time; an unanswered one counts as "no"
       return new Promise((resolve) => {
         const timer = setTimeout(() => settle(false), timeoutMs);
-        current = { id: `q${++n}`, text, resolve, timer };
+        current = { id: `q${++n}`, text, ...(details !== undefined && { details }), resolve, timer };
       });
     },
-    pending: () => (current ? { id: current.id, text: current.text } : undefined),
+    pending: () =>
+      current
+        ? { id: current.id, text: current.text, ...(current.details !== undefined && { details: current.details }) }
+        : undefined,
     answer(id, yes) {
       if (current?.id !== id) return false;
       settle(yes);
@@ -142,6 +152,8 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
   /** Another agent's message joins the conversation marked as theirs, so moqi never takes it for the user's words. */
   const fromAgent = (text: string, from: unknown) =>
     typeof from === "string" && from.trim() ? `【${from.trim().slice(0, 40)}】${text}` : text;
+  /** Another agent's words count as outside content: a dangerous action they lead to is asked again. */
+  const byAgent = (from: unknown) => typeof from === "string" && from.trim() !== "";
 
   /** Changes moqi's own config file and applies it, the same way the settings page does. */
   const updateConfig = async (change: (c: Config) => Config) => {
@@ -261,7 +273,11 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       if (!home.moqi.model) throw new HttpError(409, "还没配置模型，先去设置里接一个");
       chatting++;
       try {
-        return { reply: await home.serial(() => home.moqi.chat(fromAgent(text, body.from))) };
+        return {
+          reply: await home.serial(() =>
+            home.moqi.chat(fromAgent(text, body.from), undefined, { fromAgent: byAgent(body.from) }),
+          ),
+        };
       } catch (error) {
         throw new HttpError(502, `模型出错了：${message(error)}`);
       } finally {
@@ -454,6 +470,18 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       };
     },
 
+    "GET /api/tools": () => ({ tools: home.moqi.dangerousTools() }),
+
+    "POST /api/tool-policy": async (body) => {
+      const name = str(body.tool, "tool");
+      const policy = str(body.policy, "policy");
+      if (!["ask", "auto", "normal"].includes(policy)) throw new HttpError(400, "policy 只能是 ask、auto 或 normal");
+      if (!home.moqi.tool(name)?.danger) throw new HttpError(400, `${name} 不是会改动东西的外来工具`);
+      return {
+        message: await home.serial(async () => home.moqi.setToolPolicy(name, policy as "ask" | "auto" | "normal")),
+      };
+    },
+
     "POST /api/watch/cancel": async (body) => {
       const id = str(body.id, "id");
       return {
@@ -600,7 +628,9 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
           if (!home.moqi.model) throw new Error("moqi 还没配置模型");
           chatting++;
           try {
-            return await home.serial(() => home.moqi.chat(fromAgent(text, from ?? "另一个 agent")));
+            return await home.serial(() =>
+              home.moqi.chat(fromAgent(text, from ?? "另一个 agent"), undefined, { fromAgent: true }),
+            );
           } finally {
             chatting--;
           }

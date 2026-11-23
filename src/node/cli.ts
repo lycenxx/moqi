@@ -140,7 +140,10 @@ async function interactive(): Promise<void> {
   const home = openHome({
     home: moqiHome(),
     onDeliver: (offer, surface) => print(show(offer, surface)),
-    confirm: async (question) => /^(y|yes|好|是|可以)/i.test(((await input.next(`${question} [y/N] `)) ?? "").trim()),
+    confirm: async (question, details) => {
+      if (details) console.log(details);
+      return /^(y|yes|好|是|可以)/i.test(((await input.next(`${question} [y/N] `)) ?? "").trim());
+    },
   });
   const stop = heartbeat(home, (e) => print(`（后台出错：${e instanceof Error ? e.message : String(e)}）`));
   print(`moqi 在。${home.config.model ? "" : "还没配置模型，只能用命令；运行 moqi 在控制台里设置。"}/help 看用法`);
@@ -210,7 +213,11 @@ async function main(): Promise<void> {
 async function daemon(): Promise<void> {
   const dir = moqiHome();
   const asker = confirmQueue();
-  const home = openHome({ home: dir, onDeliver: (o, s) => console.log(show(o, s)), confirm: (q) => asker.ask(q) });
+  const home = openHome({
+    home: dir,
+    onDeliver: (o, s) => console.log(show(o, s)),
+    confirm: (q, d) => asker.ask(q, d),
+  });
   const stopBeat = heartbeat(home, (e) => console.error(`moqi: ${e instanceof Error ? e.message : String(e)}`));
   const token = consoleToken(dir);
   const a2aKey = a2aKeyFor(dir);
