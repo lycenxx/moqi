@@ -79,6 +79,7 @@ const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const NO_VISION = "当前模型看不了图，可以换成 deepseek-flash 这类能看图的模型";
 let attachments = []; // { preview, id?, error?, uploading }
 let visionAsked = null; // the one check in flight
+let checking = false; // while it runs, nothing is sent: the image would be left behind
 const pictures = new Map(); // media id -> Promise of a blob: URL
 let tested = null; // { baseURL, model, vision } of the last connection test
 
@@ -1109,7 +1110,7 @@ $("composer").addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = input.value.trim();
   const ready = attachments.filter((a) => a.id);
-  if (sending !== null || attachments.some((a) => a.uploading) || (!text && ready.length === 0)) return;
+  if (sending !== null || checking || attachments.some((a) => a.uploading) || (!text && ready.length === 0)) return;
   sending = { text, images: ready.map((a) => a.id) };
   const sent = attachments;
   attachments = [];
@@ -1164,6 +1165,8 @@ async function upload(blob) {
 async function canSee() {
   if (typeof state?.vision === "boolean") return state.vision;
   $("attach-status").textContent = "正在确认模型能不能看图…";
+  checking = true;
+  renderAttach();
   visionAsked ??= api("POST", "/api/model/vision", {})
     .then((r) => r.vision)
     .finally(() => {
@@ -1174,6 +1177,8 @@ async function canSee() {
     return state.vision;
   } finally {
     $("attach-status").textContent = "";
+    checking = false;
+    renderAttach();
   }
 }
 
@@ -1232,7 +1237,7 @@ function renderAttach() {
   const blocked = state?.vision === false;
   $("attach").setAttribute("aria-disabled", String(blocked || !state?.configured));
   $("attach").title = blocked ? NO_VISION : "添加图片";
-  $("send").disabled = !state?.configured || sending !== null || attachments.some((a) => a.uploading);
+  $("send").disabled = !state?.configured || sending !== null || checking || attachments.some((a) => a.uploading);
 }
 
 $("attach").addEventListener("click", () => {

@@ -53,7 +53,7 @@
 
 ### 3.5 能不能看图
 
-- `POST /api/model/vision { model? }`：给模型发一张 32×32 的纯红 PNG（代码里的常量），问"这张图是什么颜色？只回答颜色。"（`maxTokens: 20`，`reasoning: "off"`）。回答含"红"或"red"（不分大小写）算能看图。不带 `model` 时测当前模型，并把结果写进配置的 `model.vision`；带 `model` 时只返回结果。
+- `POST /api/model/vision { model? }`：给模型发一张 32×32 的纯红 PNG（代码里的常量），问"这张图是什么颜色？只回答颜色。"（`maxTokens: 512`，`reasoning: "off"`；会先思考的模型要留出思考的 token，实测 `deepseek-flash` 在 20 的上限下回答是空的）。回答含"红"或"red"（不分大小写）算能看图。不带 `model` 时测当前模型，并把结果写进配置的 `model.vision`；带 `model` 时只返回结果。
 - `POST /api/model/test` 同时测看图，返回里多一个 `vision`；设置页"测试连接"显示"能看图"或"看不了图"。
 - 保存设置：表单里的接口地址和模型名正是刚测过的那一组时，把测出的 `vision` 一起写入；否则接口地址或模型名变了就去掉 `model.vision`，没变就保留原来的。
 - `GET /api/state` 多一个 `vision: true | false | null`。

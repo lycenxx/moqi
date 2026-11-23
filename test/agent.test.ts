@@ -259,6 +259,12 @@ describe("openAICompatible with images", () => {
       },
     });
     expect(await canSeeImages(said("红色"))).toBe(true);
+    // A model that thinks first spends its first tokens on thinking: a tight limit leaves no answer.
+    const thinker = {
+      id: "m",
+      chat: async (r: { maxTokens?: number }) => ({ content: (r.maxTokens ?? 0) >= 400 ? "红色" : "", toolCalls: [] }),
+    };
+    expect(await canSeeImages(thinker)).toBe(true);
     expect(await canSeeImages(said("Red."))).toBe(true);
     expect(await canSeeImages(said("我看不到图片"))).toBe(false);
     expect(await canSeeImages(fails("http://x/v1/chat/completions responded 400: image input not supported"))).toBe(

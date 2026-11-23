@@ -162,7 +162,8 @@ const RED_SQUARE =
 
 /**
  * Whether the model reads images: it is shown a red square and asked its colour. A refusal of the request
- * itself (400, 413, 415, 422) means it cannot; any other failure is not an answer and is thrown.
+ * itself (400, 413, 415, 422) means it cannot; any other failure is not an answer and is thrown. The token
+ * limit leaves room for models that think before they answer (deepseek-flash by that name does).
  */
 export async function canSeeImages(model: ChatModel, signal?: AbortSignal): Promise<boolean> {
   try {
@@ -170,7 +171,7 @@ export async function canSeeImages(model: ChatModel, signal?: AbortSignal): Prom
       messages: [
         { role: "user", content: "这张图是什么颜色？只回答颜色。", images: [{ type: "image/png", data: RED_SQUARE }] },
       ],
-      maxTokens: 20,
+      maxTokens: 512,
       reasoning: "off",
       ...(signal && { signal }),
     });
