@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Abilities: moqi can work on the web, with your files and on your Mac. The browser is Playwright's MCP server (pinned to 0.0.86) with a profile of its own; within a conversation turn each site is asked once, after which moqi browses and clicks there freely, while typing, forms, uploads, scripts and other sites are still asked. Files works only in the folders you pick (Downloads and Desktop by default): list, read, make folders and new files, move, rename, and move to the Trash, never overwriting or deleting for good. On macOS: open apps, show files in Finder, take screenshots, set the volume, read and write the clipboard, and run the Shortcuts you tick in Settings, each one asked first. Saving the settings page no longer drops MCP servers and A2A agents.
 - Dangerous actions: write tools from MCP servers and A2A agents are dangerous by default and asked every time, with exactly what they would do and why. Only you can unlock one, in Settings; moqi never offers to. An unlocked one is still asked when the conversation turn has read anything from outside (a web page, a file, a calendar entry, another agent's message), and a dangerous action an offer carries is confirmed after you accept it. Another agent's message through `/api/chat`, `moqi_ask` or A2A counts as outside content, and so do memories other agents wrote (the Memory tab shows who) or that moqi kept after reading outside content. Notes from articles go into the prompt as reference only.
 
 ## [0.5.1] - 2026-11-23

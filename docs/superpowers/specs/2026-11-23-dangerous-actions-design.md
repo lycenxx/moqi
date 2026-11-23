@@ -93,7 +93,7 @@
 - `MoqiOptions.confirm(question: string, details?: string)`。只传一个参数的旧实现照常能用。
 - 危险工具的确认：
   - `question`：`要我用「<来源>」的 <工具名> 吗？`。工具自己有 `describe` 时用 `要我<describe 的结果>吗？`。
-  - `details`：第一行写为什么问，`这是会改动东西的外部工具，每次都要你确认。` 或 `这一轮读过网页或工具结果，所以再确认一次。`；空一行后是 `JSON.stringify(args, null, 2)`，超过 2000 字截断，末尾写 `…还有 N 字没显示`。
+  - `details`：第一行写为什么问，`这是会改动东西的动作，每次都要你确认。` 或 `这一轮读过网页或工具结果，所以再确认一次。`；空一行后是 `JSON.stringify(args, null, 2)`，超过 2000 字截断，末尾写 `…还有 N 字没显示`。
 - 不危险的工具确认保持现状，不传 `details`。
 - 控制台 `confirmQueue.ask(text, details?)`，`pending()` 返回 `{ id, text, details? }`；`/api/state` 的 `question` 带上 `details`。页面在问题下面用可滚动的等宽文本块显示（`<pre class="ask-details">`，最高约 16 行）。
 - 终端 `moqi chat` 的 `confirm` 把 `details` 打印在问题上面。
