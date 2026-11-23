@@ -1,6 +1,7 @@
 import type { BriefingSection } from "./plugin.js";
 import { dayKey, describeSchedule } from "./schedule.js";
 import type { State } from "./state.js";
+import { TODO_KIND, todoSection } from "./todo.js";
 
 const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
@@ -11,15 +12,24 @@ export interface Briefing {
   readonly sections: number;
 }
 
-/** The morning briefing: plugin sections, things moqi kept for you, decisions waiting, today's watches. */
+/** The morning briefing: plugin sections, today's todos, things moqi kept for you, decisions waiting, today's watches. */
 export function composeBriefing(state: State, now: number, plugins: readonly BriefingSection[]): Briefing {
   const d = new Date(now);
   const title = `今天的简报 · ${d.getMonth() + 1}月${d.getDate()}日 ${WEEKDAYS[d.getDay()]}`;
   const sections: BriefingSection[] = plugins.filter((s) => s.lines.length > 0);
+  const todos = todoSection(state, now);
+  if (todos) sections.push(todos);
 
   const kept = state
     .openOffers(now)
-    .filter((o) => o.kind !== "briefing" && o.kind !== "memory.conflict" && state.offers.get(o.id)?.surface === "feed")
+    .filter(
+      (o) =>
+        o.kind !== "briefing" &&
+        o.kind !== "memory.conflict" &&
+        o.kind !== TODO_KIND.remind && // the todos are listed above
+        o.kind !== TODO_KIND.review &&
+        state.offers.get(o.id)?.surface === "feed",
+    )
     .slice(0, 5)
     .map((o) => `${o.title}${o.body ? `：${firstLine(o.body)}` : ""}（/accept ${o.id}）`);
   if (kept.length > 0) sections.push({ title: "替你留意", lines: kept });

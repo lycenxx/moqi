@@ -234,3 +234,55 @@ describe("reminders", () => {
     expect(reminders(delivered).map((d) => d.offer.body)).toEqual(["你定的 09:10", "你定的 09:15"]);
   });
 });
+
+describe("evening review", () => {
+  const reviews = <T extends { offer: { kind: string } }>(d: T[]) => d.filter((x) => x.offer.kind === "todo.review");
+
+  it("lists what is left at 21:00, once a day, and stays quiet when everything is done", async () => {
+    const { moqi, clock, delivered } = harness({ start: "2026-11-20T09:00:00+08:00" });
+    await add(moqi, { text: "交报告" });
+    await add(moqi, { text: "买牛奶" });
+    await add(moqi, { text: "续费", day: "2026-11-25" });
+    clock.set("2026-11-20T20:59:00+08:00");
+    await moqi.tick();
+    expect(reviews(delivered)).toHaveLength(0);
+    clock.set("2026-11-20T21:00:30+08:00");
+    await moqi.tick();
+    await moqi.tick();
+    expect(reviews(delivered)).toEqual([
+      expect.objectContaining({
+        surface: "notify",
+        offer: expect.objectContaining({
+          title: "今天还有 2 件没做完",
+          body: "· 交报告\n· 买牛奶\n没做完的明天接着排。",
+        }),
+      }),
+    ]);
+    clock.set("2026-11-21T10:00:00+08:00");
+    for (const t of todayTodos(moqi.state, clock.now()))
+      await moqi.callTool("todo_done", { id: t.id }, { byUser: true });
+    clock.set("2026-11-21T21:00:00+08:00");
+    await moqi.tick();
+    expect(reviews(delivered)).toHaveLength(1);
+  });
+
+  it("follows the configured time, can be turned off, and is skipped late at night", async () => {
+    const moved = harness({ todoReviewAt: "19:30", start: "2026-11-20T09:00:00+08:00" });
+    await add(moved.moqi, { text: "交报告" });
+    moved.clock.set("2026-11-20T19:30:00+08:00");
+    await moved.moqi.tick();
+    expect(reviews(moved.delivered)).toHaveLength(1);
+
+    const off = harness({ todoReviewAt: null, start: "2026-11-20T09:00:00+08:00" });
+    await add(off.moqi, { text: "交报告" });
+    off.clock.set("2026-11-20T21:00:00+08:00");
+    await off.moqi.tick();
+    expect(reviews(off.delivered)).toHaveLength(0);
+
+    const late = harness({ start: "2026-11-20T09:00:00+08:00" });
+    await add(late.moqi, { text: "交报告" });
+    late.clock.set("2026-11-20T23:15:00+08:00"); // moqi was off all evening
+    await late.moqi.tick();
+    expect(reviews(late.delivered)).toHaveLength(0);
+  });
+});

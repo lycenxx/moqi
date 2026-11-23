@@ -10,7 +10,7 @@ import { findRoutines } from "./routines.js";
 import { dayKey, describeSchedule, minuteOfDay, nextRun, parseTime } from "./schedule.js";
 import { State } from "./state.js";
 import { STUDY, studiedOn, study } from "./study.js";
-import { dueReminders, reminderOffer } from "./todo.js";
+import { dueReminders, reminderOffer, reviewOffer, TODO, TODO_KIND } from "./todo.js";
 import { builtinTools, type Kernel } from "./tools.js";
 import {
   type Clock,
@@ -41,6 +41,8 @@ export interface MoqiOptions {
   readonly persona?: string;
   /** Local "HH:MM" for the daily briefing; null turns it off. Default "08:00". */
   readonly briefingAt?: string | null;
+  /** Local "HH:MM" for the evening look at unfinished todos; null turns it off. Default "21:00". */
+  readonly todoReviewAt?: string | null;
   /** Shows an offer: a system notification for "notify", a quiet entry for "feed". */
   readonly deliver?: (offer: Offer, surface: Surface) => void | Promise<void>;
   /** Asks the user before an action that has not earned trust yet. Without it, such actions are refused. */
@@ -378,6 +380,7 @@ export class Moqi {
       }
     }
     await this.maybeBrief(now);
+    await this.maybeReviewTodos(now);
     await this.offerRoutines(now);
     this.maybeReflect(now);
     this.maybeStudy(now);
@@ -473,6 +476,22 @@ export class Moqi {
       value: b.sections > 0 ? 0.8 : 0.3,
       urgency: "today",
     });
+  }
+
+  /** In the evening, what is left today. Within a while after the set time only, never deep into the night. */
+  private async maybeReviewTodos(now: number): Promise<void> {
+    const at = this.options.todoReviewAt === undefined ? "21:00" : this.options.todoReviewAt;
+    if (at === null) return;
+    const { hours, minutes } = parseTime(at);
+    const since = (minuteOfDay(now) - (hours * 60 + minutes)) * 60_000;
+    if (since < 0 || since >= TODO.reviewWindowMs) return;
+    const today = dayKey(now);
+    const done = [...this.state.offers.values()].some(
+      (r) => r.offer.kind === TODO_KIND.review && dayKey(r.offer.createdAt) === today,
+    );
+    if (done) return;
+    const offer = reviewOffer(this.state, now);
+    if (offer) await this.offer(offer);
   }
 
   private async offerRoutines(now: number): Promise<void> {

@@ -58,4 +58,20 @@ describe("daily briefing", () => {
     const { moqi } = harness({ plugins: [broken, ok] });
     expect((await moqi.briefing()).body).toContain("【天气】\n· 晴");
   });
+
+  it("lists today's todos with how long each was put off, and does not repeat reminders kept in the feed", async () => {
+    const { moqi, clock } = harness({ start: "2026-11-19T09:00:00+08:00" });
+    const add = (args: Record<string, unknown>) => moqi.callTool("todo_add", args, { byUser: true });
+    await add({ text: "交报告" });
+    clock.set("2026-11-20T07:00:00+08:00");
+    await add({ text: "开会", at: "15:00" });
+    await add({ text: "续费", day: "tomorrow" });
+    await moqi.offer({ kind: "todo.remind", title: "吃药", body: "本来 22:00 提醒你", value: 0.3, urgency: "today" });
+    clock.set("2026-11-20T08:00:00+08:00");
+    const b = await moqi.briefing();
+    expect(b.body).toContain("【今天要做】\n· 15:00 开会\n· 交报告（已拖 1 天）");
+    expect(b.body).not.toContain("续费");
+    expect(b.body).not.toContain("吃药");
+    expect(b.sections).toBe(1);
+  });
 });
