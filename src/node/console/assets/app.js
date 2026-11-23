@@ -507,6 +507,9 @@ function todoItem(t) {
       toast(r.message);
     } catch (error) {
       toast(error.message);
+      // Nothing changed, so the list is not rebuilt: put the box back as it was.
+      box.checked = done;
+      box.disabled = false;
     }
     refresh();
   });
