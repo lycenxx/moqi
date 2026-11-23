@@ -529,6 +529,10 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       if (model && !model.apiKey && saved) model.apiKey = saved; // a blank key field keeps the saved key
       if (model && model.apiKey === "") delete model.apiKey;
       if (raw.model === null) delete raw.model;
+      // MCP servers and A2A agents have their own buttons; a page that does not send them keeps them.
+      const file = readConfigFile(home.dir);
+      if (raw.mcp === undefined && file.mcp) raw.mcp = file.mcp;
+      if (raw.a2a === undefined && file.a2a) raw.a2a = file.a2a;
       const parsed = ConfigSchema.safeParse(raw);
       if (!parsed.success) {
         const issues = parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message }));

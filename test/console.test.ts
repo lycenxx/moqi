@@ -549,6 +549,20 @@ describe("console: connecting other agents", () => {
 });
 
 describe("console: tools and agents moqi uses", () => {
+  it("keeps MCP servers and A2A agents when the settings page is saved", async () => {
+    const { dir, api } = await start({
+      briefingAt: null,
+      mcp: { servers: { echo: { command: "/usr/bin/true" } } },
+      a2a: { agents: [{ name: "bob", url: "https://bob.test" }] },
+    });
+    const { config } = (await api("GET", "/api/config")).data;
+    const page = { model: null, briefingAt: null, quiet: config.quiet, dailyBudget: 3, news: { feeds: [] } };
+    expect((await api("POST", "/api/config", { config: page })).status).toBe(200);
+    const saved = readConfigFile(dir);
+    expect(Object.keys(saved.mcp?.servers ?? {})).toEqual(["echo"]);
+    expect(saved.a2a?.agents.map((a) => a.name)).toEqual(["bob"]);
+  });
+
   const fixture = join(import.meta.dirname, "fixtures", "echo-mcp.mjs");
 
   it("takes an MCP server from another agent, shows its tools, and removes it", async () => {
