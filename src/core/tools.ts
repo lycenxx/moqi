@@ -78,11 +78,11 @@ export function builtinTools(k: Kernel): Tool<any>[] {
       run: (a) => k.remember(a as never),
     }),
     defineTool({
+      // Not local: memories, todos and watch results can hold other agents' words and fetched text.
       name: "list_memories",
       description: "List what you remember about the user, with ids.",
       input: z.object({}),
       effect: "read",
-      local: true,
       run: () => [...k.state.facts.values()].map((f) => `[${f.id}] ${f.content}`).join("\n") || "（还没有记住任何事）",
     }),
     defineTool({
@@ -147,7 +147,6 @@ export function builtinTools(k: Kernel): Tool<any>[] {
       description: "List the things you keep an eye on for the user.",
       input: z.object({}),
       effect: "read",
-      local: true,
       run: () =>
         [...k.state.watches.values()]
           .map(
@@ -209,7 +208,6 @@ export function builtinTools(k: Kernel): Tool<any>[] {
       description: "The user's todo list with ids: today (including what was put off), later, and done today.",
       input: z.object({}),
       effect: "read",
-      local: true,
       run: () => {
         const now = k.now();
         const line = (t: Todo) => `[${t.id}] ${describeTodo(t, now)}`;

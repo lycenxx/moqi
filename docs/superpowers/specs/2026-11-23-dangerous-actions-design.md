@@ -43,7 +43,7 @@
 
 - `src/node/mcp-client.ts`：写工具（没有 `readOnlyHint: true` 的）标 `danger: true`；所有 MCP 工具都带 `source: <服务器名>`。
 - `src/plugins/a2a.ts`：`ask_<名字>` 标 `danger: true`，`source: <agent 名>`。
-- `src/core/tools.ts`：内置工具都标 `local: true`，都不标 `danger`。`forget` 仍然封顶 `suggest`。
+- `src/core/tools.ts`：内置工具都不标 `danger`。记下和修改 moqi 自己状态的工具（`remember`、`todo_add`、`watch_create` 这类，结果只是 moqi 的回执）标 `local: true`；读出列表的 `list_memories`、`todo_list`、`watch_list` 不标，因为记忆和待办可能是别的 agent 写进来的，托管事务的结果来自外部工具。`forget` 仍然封顶 `suggest`。
 - 天气、日历、新闻插件的工具不标 `local`，它们的结果算外部内容。
 - 来源显示：`tool.source` 有值就用它，否则用提供它的插件名，内置工具显示 `moqi`。`Moqi` 在构造时记下每个工具属于哪个插件。
 
