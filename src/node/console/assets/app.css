@@ -613,6 +613,7 @@ input[type="password"],
 input[type="search"],
 input[type="number"],
 input[type="time"],
+input[type="date"],
 .settings textarea {
   width: 100%;
   min-height: 44px;
@@ -652,6 +653,52 @@ input.short {
 
 .inline input:not(.short) {
   flex: 1;
+}
+
+.todo-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.todo-add #todo-text {
+  flex: 1 1 220px;
+}
+
+.todo-add input[type="date"],
+.todo-add input[type="time"] {
+  width: auto;
+}
+
+.todo-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.todo-check {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.todo-words {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.item.todo.done .item-text {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+
+.item.todo.late .item-meta {
+  color: var(--danger);
 }
 
 .to,

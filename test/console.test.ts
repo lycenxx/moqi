@@ -90,7 +90,10 @@ describe("console", () => {
     expect(page.status).toBe(200);
     expect(page.headers.get("content-security-policy")).toContain("default-src 'none'");
     expect(page.headers.get("content-security-policy")).toContain("connect-src 'self'");
-    expect(await page.text()).toContain('<script src="/app.js"');
+    const html = await page.text();
+    expect(html).toContain('<script src="/app.js"');
+    expect(html).toContain('id="view-todo"');
+    expect(html).toContain('id="r-at"');
     expect((await fetch(`http://127.0.0.1:${ui.port}/app.js`)).headers.get("content-type")).toContain("javascript");
 
     expect((await api("GET", "/api/state", undefined, "wrong")).status).toBe(401);

@@ -52,6 +52,7 @@ let newsPresets = [];
 let offersKey = "";
 let thoughtsKey = "";
 let memoryKey = "";
+let todosKey = "";
 const drafts = new Map(); // offer id -> what the user has typed so far
 
 /* Small helpers */
@@ -125,7 +126,7 @@ function setResult(el, text, kind) {
 
 /* Tabs */
 
-const TABS = ["chat", "feed", "memory", "settings"];
+const TABS = ["chat", "todo", "feed", "memory", "settings"];
 
 function show(next, focus) {
   view = next;
@@ -179,8 +180,12 @@ function render() {
   const count = state.offers.length;
   $("feed-count").hidden = count === 0;
   $("feed-count").textContent = String(count);
+  const left = state.todos.today.length;
+  $("todo-count").hidden = left === 0;
+  $("todo-count").textContent = String(left);
   renderAsk();
   if (view === "chat") renderChat();
+  if (view === "todo") renderTodos();
   if (view === "feed") renderFeed();
   if (view === "memory") renderMemory();
 }
@@ -356,6 +361,7 @@ function offerCard(o) {
       ),
     );
   }
+  const remind = o.kind === "todo.remind";
   return h(
     "article",
     { class: "card" },
@@ -368,12 +374,23 @@ function offerCard(o) {
       h("button", {
         type: "button",
         class: "btn primary",
-        text: o.action ? "好" : "有用",
+        text: remind ? "完成" : o.action ? "好" : "有用",
         onclick: respond("accepted"),
       }),
-      h("button", { type: "button", class: "btn", text: o.action ? "不用" : "不需要", onclick: respond("dismissed") }),
+      h("button", {
+        type: "button",
+        class: "btn",
+        text: remind ? "还没做" : o.action ? "不用" : "不需要",
+        onclick: respond("dismissed"),
+      }),
+      o.kind === "todo.review"
+        ? h("button", { type: "button", class: "btn", text: "打开待办", onclick: () => show("todo") })
+        : null,
       h("span", { class: "spacer" }),
-      h("button", { type: "button", class: "btn ghost", text: "不再提这类", onclick: respond("muted") }),
+      // One stray tap must never silence every reminder the user set.
+      remind
+        ? null
+        : h("button", { type: "button", class: "btn ghost", text: "不再提这类", onclick: respond("muted") }),
     ),
   );
 }
@@ -441,6 +458,104 @@ $("think").addEventListener("click", async () => {
   } catch (error) {
     toast(error.message);
   }
+  refresh();
+});
+
+/* Todos */
+
+function dayOf(at) {
+  const d = new Date(at);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function hm(at) {
+  const d = new Date(at);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function dayLabel(day) {
+  const today = dayOf(Date.now());
+  if (day === today) return "今天";
+  if (day === dayOf(Date.now() + 86_400_000)) return "明天";
+  const [, m, d] = day.split("-");
+  return `${Number(m)}月${Number(d)}日`;
+}
+
+function renderTodos() {
+  const key = JSON.stringify(state.todos);
+  if (key === todosKey) return; // keeps a half-done two-step delete as it is
+  todosKey = key;
+  fillTodos($("todo-today"), state.todos.today, "今天没有要做的事。");
+  fillTodos($("todo-later"), state.todos.later, "以后的事也可以先记下来。");
+  fillTodos($("todo-done"), state.todos.done, "这 7 天还没勾掉过什么。");
+}
+
+function fillTodos(list, todos, empty) {
+  list.replaceChildren();
+  if (todos.length === 0) list.append(h("p", { class: "none", text: empty }));
+  for (const t of todos) list.append(todoItem(t));
+}
+
+function todoItem(t) {
+  const done = t.doneAt !== null;
+  const box = h("input", { type: "checkbox", class: "todo-check" });
+  box.checked = done;
+  box.addEventListener("change", async () => {
+    box.disabled = true;
+    try {
+      const r = await api("POST", done ? "/api/todo/undone" : "/api/todo/done", { id: t.id });
+      toast(r.message);
+    } catch (error) {
+      toast(error.message);
+    }
+    refresh();
+  });
+  const meta = [];
+  if (done) meta.push(`完成于${when(t.doneAt)}`);
+  else {
+    const today = dayOf(Date.now());
+    if (t.day > today) meta.push(dayLabel(t.day));
+    if (t.remindAt !== null && dayOf(t.remindAt) >= today) meta.push(`${hm(t.remindAt)} 提醒`);
+    if (t.late > 0) meta.push(`已拖 ${t.late} 天`);
+  }
+  if (t.by) meta.push(t.by === "moqi" ? "moqi 听出来的" : `${t.by} 加的`);
+  return h(
+    "div",
+    { class: `item todo${done ? " done" : ""}${t.late > 0 ? " late" : ""}` },
+    h(
+      "label",
+      { class: "item-main todo-label" },
+      box,
+      h(
+        "span",
+        { class: "todo-words" },
+        h("span", { class: "item-text", text: t.text }),
+        meta.length ? h("span", { class: "item-meta", text: meta.join(" · ") }) : null,
+      ),
+    ),
+    removeButton("删除这件待办", "确定删除", () => api("POST", "/api/todo/remove", { id: t.id })),
+  );
+}
+
+$("todo-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = $("todo-text").value.trim();
+  if (!text) return $("todo-text").focus();
+  const body = { text };
+  if ($("todo-day").value) body.day = $("todo-day").value;
+  if ($("todo-at").value) body.at = $("todo-at").value;
+  $("todo-add").disabled = true;
+  try {
+    const r = await api("POST", "/api/todo/add", body);
+    toast(r.message);
+    $("todo-text").value = "";
+    $("todo-day").value = "";
+    $("todo-at").value = "";
+  } catch (error) {
+    toast(error.message);
+  }
+  $("todo-add").disabled = false;
+  $("todo-text").focus();
   refresh();
 });
 
@@ -669,6 +784,9 @@ $("n-on").addEventListener("change", () => toggle("n-on", "n-body"));
 $("b-on").addEventListener("change", () => {
   $("b-at").disabled = !$("b-on").checked;
 });
+$("r-on").addEventListener("change", () => {
+  $("r-at").disabled = !$("r-on").checked;
+});
 
 function showWeather() {
   $("w-chosen").textContent = weather
@@ -710,6 +828,9 @@ async function loadSettings() {
     $("b-on").checked = config.briefingAt !== null;
     $("b-at").value = config.briefingAt || "08:00";
     $("b-at").disabled = config.briefingAt === null;
+    $("r-on").checked = config.todoReviewAt !== null;
+    $("r-at").value = config.todoReviewAt || "21:00";
+    $("r-at").disabled = config.todoReviewAt === null;
     $("q-from").value = config.quiet.from;
     $("q-to").value = config.quiet.to;
     $("budget").value = String(config.dailyBudget);
@@ -1037,6 +1158,7 @@ $("settings").addEventListener("submit", async (e) => {
     model: m.baseURL ? m : null,
     persona: $("persona").value.trim() || undefined,
     briefingAt: $("b-on").checked ? $("b-at").value : null,
+    todoReviewAt: $("r-on").checked ? $("r-at").value : null,
     quiet: { from: $("q-from").value, to: $("q-to").value },
     dailyBudget: Number($("budget").value),
     weather: $("w-on").checked ? weather : undefined,

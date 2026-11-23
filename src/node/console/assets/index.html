@@ -15,6 +15,9 @@
         <div class="brand"><span class="dot" aria-hidden="true"></span>moqi</div>
         <div class="tabs" role="tablist" aria-label="moqi">
           <button type="button" role="tab" id="tab-chat" data-view="chat" aria-controls="view-chat" aria-selected="true">对话</button>
+          <button type="button" role="tab" id="tab-todo" data-view="todo" aria-controls="view-todo" aria-selected="false" tabindex="-1">
+            待办<span class="count" id="todo-count" hidden></span>
+          </button>
           <button type="button" role="tab" id="tab-feed" data-view="feed" aria-controls="view-feed" aria-selected="false" tabindex="-1">
             动态<span class="count" id="feed-count" hidden></span>
           </button>
@@ -43,6 +46,26 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
           </button>
         </form>
+      </section>
+
+      <section class="view" id="view-todo" role="tabpanel" aria-labelledby="tab-todo" hidden>
+        <h1 class="title">待办</h1>
+        <p class="lead">定了时间的到点一定提醒你，没做完的明天接着排。也可以在对话里说「明天下午三点提醒我交报告」。</p>
+        <form class="todo-add" id="todo-form">
+          <label for="todo-text" class="sr-only">要做的事</label>
+          <input id="todo-text" type="text" maxlength="200" autocomplete="off" placeholder="要做什么" />
+          <label for="todo-day" class="sr-only">哪天</label>
+          <input id="todo-day" type="date" />
+          <label for="todo-at" class="sr-only">几点提醒（可不填）</label>
+          <input id="todo-at" type="time" />
+          <button type="submit" class="btn primary" id="todo-add">添加</button>
+        </form>
+        <h2 class="subtitle">今天</h2>
+        <div class="list" id="todo-today"></div>
+        <h2 class="subtitle">以后</h2>
+        <div class="list" id="todo-later"></div>
+        <h2 class="subtitle">最近完成</h2>
+        <div class="list" id="todo-done"></div>
       </section>
 
       <section class="view" id="view-feed" role="tabpanel" aria-labelledby="tab-feed" hidden>
@@ -175,6 +198,14 @@
                 <label class="switch"><input type="checkbox" id="b-on" /><span class="sr-only">开启每日简报</span></label>
               </div>
               <input id="b-at" type="time" class="short" />
+            </div>
+            <div class="field">
+              <div class="legend-row">
+                <label for="r-at">晚间回顾</label>
+                <label class="switch"><input type="checkbox" id="r-on" /><span class="sr-only">开启晚间回顾</span></label>
+              </div>
+              <input id="r-at" type="time" class="short" />
+              <p class="hint">这个时间列出今天还没做完的事。你自己定了时间的提醒，不受免打扰和每天条数的限制。</p>
             </div>
             <div class="field">
               <fieldset class="plain">
