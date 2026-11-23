@@ -20,7 +20,10 @@ export function fileEventStore(path: string): EventStore & { readonly path: stri
   const events: MoqiEvent[] = [];
   let skipped = 0;
   if (existsSync(path)) {
-    for (const line of readFileSync(path, "utf8").split("\n")) {
+    const text = readFileSync(path, "utf8");
+    // End a torn last line, or the next event would be glued onto it and lost on the following load.
+    if (text !== "" && !text.endsWith("\n")) appendFileSync(path, "\n");
+    for (const line of text.split("\n")) {
       if (line.trim() === "") continue;
       try {
         events.push(JSON.parse(line) as MoqiEvent);
