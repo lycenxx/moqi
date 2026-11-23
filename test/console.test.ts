@@ -174,6 +174,10 @@ describe("console", () => {
     expect(html).toContain('id="code-running"');
     expect(html).toContain('id="code-projects"');
     expect((await fetch(`http://127.0.0.1:${ui.port}/app.js`)).headers.get("content-type")).toContain("javascript");
+    expect((await fetch(`http://127.0.0.1:${ui.port}/markdown.js`)).headers.get("content-type")).toContain(
+      "javascript",
+    );
+    expect(html).toContain('<script src="/markdown.js"');
 
     expect((await api("GET", "/api/state", undefined, "wrong")).status).toBe(401);
     expect((await api("GET", "/api/state", undefined, "")).status).toBe(401);

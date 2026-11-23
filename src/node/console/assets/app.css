@@ -440,7 +440,8 @@ select.policy {
 }
 
 .msg.moqi {
-  align-self: flex-start;
+  align-self: stretch;
+  max-width: none;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1295,4 +1296,181 @@ input.short {
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
+}
+
+/* moqi's formatted answers */
+
+.md {
+  line-height: 1.75;
+}
+
+.md > :first-child {
+  margin-top: 0;
+}
+
+.md > :last-child {
+  margin-bottom: 0;
+}
+
+.md p,
+.md ul,
+.md ol,
+.md blockquote {
+  margin: 0 0 12px;
+}
+
+.md ul,
+.md ol {
+  padding-left: 1.4em;
+}
+
+.md li > ul,
+.md li > ol {
+  margin: 4px 0 0;
+}
+
+.md .md-h {
+  margin: 18px 0 8px;
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.md h4.md-h {
+  font-size: 16px;
+}
+
+.md code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--bubble);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.88em;
+}
+
+.md hr {
+  margin: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.md blockquote {
+  padding-left: 12px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--muted);
+}
+
+.md a {
+  color: var(--accent);
+  text-underline-offset: 3px;
+}
+
+.codeblock {
+  margin: 0 0 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px 4px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.codeblock pre {
+  margin: 0;
+  padding: 12px 16px;
+  overflow: auto;
+  line-height: 1.55;
+}
+
+.codeblock pre code {
+  padding: 0;
+  background: none;
+}
+
+.codeblock .copy {
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.codeblock .copy:hover {
+  background: var(--bubble);
+  color: var(--text);
+}
+
+.table-wrap {
+  overflow-x: auto;
+  margin: 0 0 12px;
+}
+
+.md table {
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.md th,
+.md td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.md th {
+  font-weight: 600;
+}
+
+.al-left {
+  text-align: left;
+}
+
+.al-center {
+  text-align: center;
+}
+
+.al-right {
+  text-align: right;
+}
+
+.link-cards {
+  display: flex;
+  margin: 0 0 12px;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.link-card {
+  display: flex;
+  flex-direction: column;
+  max-width: 420px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 150ms ease;
+}
+
+.link-card:hover {
+  border-color: var(--accent);
+}
+
+.link-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.link-host {
+  color: var(--faint);
+  font-size: 12px;
 }

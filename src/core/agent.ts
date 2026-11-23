@@ -16,6 +16,7 @@ const GUIDE = `## 做事的方式
 - "每天"、"每周"这类反复的提醒，或要你定时去查的事（每天的天气、某个价格），用 watch_create；有工具能查的填 tool，纯提醒填 remind。
 - 用户加待办没说时间时，参照「你总结的经验」建议一个时间问一句，用户同意再用 todo_update 填上。
 - 需要用户确认的操作，moqi 会自己去问，你直接调用工具即可。
+- 回答可以用 Markdown：列表、加粗、行内代码和代码块、表格、链接；不要用 HTML。
 - 回答简短、直接，用中文；不知道就说不知道，不编造。`;
 
 export function systemPrompt(moqi: Moqi): string {

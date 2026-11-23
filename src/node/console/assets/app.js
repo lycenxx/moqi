@@ -245,9 +245,97 @@ $("viewer").addEventListener("click", (e) => {
   if (e.target === $("viewer")) $("viewer").close();
 });
 
-/** moqi's answer. Plain text here; Markdown replaces it. */
+/** moqi's answer, from Markdown data to elements; text goes in as text and only http(s) links become links. */
 function renderAnswer(text) {
-  return h("div", { class: "msg-text", text });
+  const parse = globalThis.moqiMarkdown?.parse;
+  const blocks = parse ? parse(text) : [{ t: "p", c: [{ t: "text", v: text }] }];
+  return h("div", { class: "md" }, blocks.map(blockEl));
+}
+
+function inlineEl(n) {
+  if (n.t === "text") return n.v;
+  if (n.t === "br") return h("br");
+  if (n.t === "code") return h("code", { text: n.v });
+  if (n.t === "b") return h("strong", {}, n.c.map(inlineEl));
+  if (n.t === "i") return h("em", {}, n.c.map(inlineEl));
+  if (n.t === "a" && /^https?:\/\//i.test(n.href))
+    return h("a", { href: n.href, target: "_blank", rel: "noopener noreferrer" }, n.c.map(inlineEl));
+  return n.c ? n.c.map(inlineEl) : "";
+}
+
+function blockEl(b) {
+  if (b.t === "p") return h("p", {}, b.c.map(inlineEl));
+  if (b.t === "h") return h(b.level === 1 ? "h3" : "h4", { class: "md-h" }, b.c.map(inlineEl));
+  if (b.t === "hr") return h("hr");
+  if (b.t === "quote") return h("blockquote", {}, b.blocks.map(blockEl));
+  if (b.t === "code") {
+    const copy = h("button", { type: "button", class: "copy", text: "复制" });
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(b.text);
+        toast("复制了");
+      } catch {
+        toast("复制不了，手动选中吧");
+      }
+    });
+    return h(
+      "div",
+      { class: "codeblock" },
+      h("div", { class: "code-head" }, h("span", { text: b.lang || "代码" }), copy),
+      h("pre", {}, h("code", { text: b.text })),
+    );
+  }
+  if (b.t === "ul" || b.t === "ol")
+    return h(
+      b.t,
+      b.t === "ol" && b.start !== 1 ? { start: String(b.start) } : {},
+      b.items.map((it) => h("li", {}, it.c.map(inlineEl), it.sub ? blockEl(it.sub) : null)),
+    );
+  if (b.t === "table")
+    return h(
+      "div",
+      { class: "table-wrap" },
+      h(
+        "table",
+        {},
+        h(
+          "thead",
+          {},
+          h(
+            "tr",
+            {},
+            b.head.map((c, i) => h("th", { class: `al-${b.align[i] || "left"}` }, c.map(inlineEl))),
+          ),
+        ),
+        h(
+          "tbody",
+          {},
+          b.rows.map((row) =>
+            h(
+              "tr",
+              {},
+              row.map((c, i) => h("td", { class: `al-${b.align[i] || "left"}` }, c.map(inlineEl))),
+            ),
+          ),
+        ),
+      ),
+    );
+  if (b.t === "cards")
+    return h(
+      "div",
+      { class: "link-cards" },
+      b.links
+        .filter((l) => /^https?:\/\//i.test(l.href))
+        .map((l) =>
+          h(
+            "a",
+            { class: "link-card", href: l.href, target: "_blank", rel: "noopener noreferrer" },
+            h("span", { class: "link-title", text: l.text }),
+            h("span", { class: "link-host", text: l.host }),
+          ),
+        ),
+    );
+  return null;
 }
 
 function messageEl(m) {
