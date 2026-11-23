@@ -225,3 +225,5 @@ moqi 直接在后台调用各家的命令行（新文件 `src/node/code.ts`）�
 - Claude Code 当前登录返回 401，没有真机实测；`network: true` 时 `allowedDomains: ["*"]` 的写法未经验证。
 - 隐藏的危险工具（`code_merge`）不出现在设置页的"会改动东西的工具"里，也不能在那里放开：它只在用户点"合并"时运行。
 - 问题以英文字母或数字结尾时，"吗"前加一个空格。
+- 审查后修的两处：moqi 自己跑的 git 命令（工作区里的提交、项目里的合并等）一律加 `-c core.hooksPath=/dev/null`，不跑任何 hook。否则仓库用相对路径的 `core.hooksPath`（如 husky）时，agent 在工作区写的 hook 会在 moqi 提交时在沙箱外运行（已复现）。代价是 moqi 合并时你项目的 hook 也不跑。Claude Code 改用 `--setting-sources ""`（实测可用），不读你的和仓库里的任何设置，`--settings` 里加 `disableAllHooks: true`；原来的 `project` 会读仓库自带的 `.claude/settings.json`，它的放行规则和 hook 能绕过"只跑列出的命令"。
+- 没有改动的任务，提议不带动作；提议的 `about` 字段记着任务 id，控制台据此找到任务。
