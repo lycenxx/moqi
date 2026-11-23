@@ -8,7 +8,7 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { lastSegment } from "../../core/code.js";
 import { FACT_KINDS, isFaded } from "../../core/memory.js";
-import { openAICompatible } from "../../core/model.js";
+import { canSeeImages, openAICompatible } from "../../core/model.js";
 import { describeSchedule } from "../../core/schedule.js";
 import { daysLate, laterTodos, recentlyDone, todayTodos } from "../../core/todo.js";
 import type { Answer, Choices, FactKind, Todo, Urgency, Verdict } from "../../core/types.js";
@@ -19,6 +19,7 @@ import type { Config } from "../config.js";
 import { ConfigSchema, expandHome, loadConfig, readConfigFile, saveConfig } from "../config.js";
 import type { Home } from "../home.js";
 import { listShortcuts } from "../mac.js";
+import { MEDIA_ID, MEDIA_MAX, sniff } from "../media.js";
 import { browserPreset } from "../presets.js";
 import { A2A_PATH, AGENT_CARD_PATH, agentCard, handleA2A } from "./a2a.js";
 import { CONSOLE_HOST, consoleUrl } from "./info.js";
@@ -146,7 +147,7 @@ const ASSETS: Record<string, { file: string; type: string }> = {
 
 const SECURITY_HEADERS = {
   "Content-Security-Policy":
-    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "no-referrer",
@@ -173,6 +174,20 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
     return saved?.apiKey && saved.baseURL.replace(/\/+$/, "") === baseURL.replace(/\/+$/, "")
       ? saved.apiKey
       : undefined;
+  };
+
+  /** A model built from what the settings form says, with the saved key only for its own endpoint. */
+  const formModel = (m: Record<string, unknown>) => {
+    const baseURL = str(m.baseURL, "baseURL");
+    if (!/^https?:\/\//.test(baseURL)) throw new HttpError(400, "接口地址要以 http:// 或 https:// 开头");
+    const apiKey = (typeof m.apiKey === "string" && m.apiKey) || env.MOQI_API_KEY || savedKeyFor(baseURL);
+    return openAICompatible({
+      baseURL,
+      model: str(m.model, "model"),
+      ...(apiKey && { apiKey }),
+      ...(m.noThink === true && { noThink: true }),
+      fetch: doFetch,
+    });
   };
 
   const same = (value: string | string[] | undefined, want: Buffer) => {
@@ -213,7 +228,9 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       const now = moqi.clock.now();
       const messages = moqi.store
         .all()
-        .flatMap((e) => (e.type === "message" ? [{ role: e.role, text: e.text, at: e.at }] : []))
+        .flatMap((e) =>
+          e.type === "message" ? [{ role: e.role, text: e.text, at: e.at, ...(e.images && { images: e.images }) }] : [],
+        )
         .slice(-60);
       const offers = moqi.state.openOffers(now).flatMap((o) => {
         const record = moqi.state.offers.get(o.id);
@@ -312,19 +329,28 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
             ...((t.status === "done" || t.status === "failed") && { into: home.code.currentBranch(t.task.project) }),
           })),
         thoughts,
+        vision: home.config.model?.vision ?? null,
       };
     },
 
     "POST /api/chat": async (body) => {
       const text = str(body.text, "text").trim();
-      if (text === "") throw new HttpError(400, "说点什么吧");
+      const images = Array.isArray(body.images) ? body.images : [];
+      if (text === "" && images.length === 0) throw new HttpError(400, "说点什么吧");
       if (text.length > 4000) throw new HttpError(400, "一次说得太长了");
+      if (images.length > 4) throw new HttpError(400, "一次最多 4 张图片");
+      if (images.length > 0 && body.from !== undefined) throw new HttpError(400, "别的 agent 只能发文字");
+      if (!images.every((id) => typeof id === "string" && home.media.read(id)))
+        throw new HttpError(400, "有一张图片找不到了，重新加一下");
       if (!home.moqi.model) throw new HttpError(409, "还没配置模型，先去设置里接一个");
       chatting++;
       try {
         return {
           reply: await home.serial(() =>
-            home.moqi.chat(fromAgent(text, body.from), undefined, { fromAgent: byAgent(body.from) }),
+            home.moqi.chat(fromAgent(text, body.from), undefined, {
+              fromAgent: byAgent(body.from),
+              ...(images.length > 0 && { images: images as string[] }),
+            }),
           ),
         };
       } catch (error) {
@@ -632,13 +658,20 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
     "POST /api/config": async (body) => {
       if (asker.pending()) throw new HttpError(409, "moqi 正在等你回答一个问题，先回答再保存");
       const raw = (body.config ?? {}) as Record<string, unknown>;
+      const file = readConfigFile(home.dir);
       const model = raw.model as Record<string, unknown> | null | undefined;
       const saved = savedKeyFor(typeof model?.baseURL === "string" ? model.baseURL : "");
       if (model && !model.apiKey && saved) model.apiKey = saved; // a blank key field keeps the saved key
       if (model && model.apiKey === "") delete model.apiKey;
+      // What moqi found out about seeing images belongs to that model: kept while it stays, dropped when it changes.
+      if (model && typeof model.vision !== "boolean") {
+        const old = file.model;
+        if (old?.vision !== undefined && old.baseURL === model.baseURL && old.model === model.model)
+          model.vision = old.vision;
+        else delete model.vision;
+      }
       if (raw.model === null) delete raw.model;
       // MCP servers and A2A agents have their own buttons; a page that does not send them keeps them.
-      const file = readConfigFile(home.dir);
       if (raw.mcp === undefined && file.mcp) raw.mcp = file.mcp;
       if (raw.a2a === undefined && file.a2a) raw.a2a = file.a2a;
       const parsed = ConfigSchema.safeParse(raw);
@@ -680,17 +713,7 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
     },
 
     "POST /api/model/test": async (body) => {
-      const m = (body.model ?? {}) as Record<string, unknown>;
-      const baseURL = str(m.baseURL, "baseURL");
-      if (!/^https?:\/\//.test(baseURL)) throw new HttpError(400, "接口地址要以 http:// 或 https:// 开头");
-      const apiKey = (typeof m.apiKey === "string" && m.apiKey) || env.MOQI_API_KEY || savedKeyFor(baseURL);
-      const model = openAICompatible({
-        baseURL,
-        model: str(m.model, "model"),
-        ...(apiKey && { apiKey }),
-        ...(m.noThink === true && { noThink: true }),
-        fetch: doFetch,
-      });
+      const model = formModel((body.model ?? {}) as Record<string, unknown>);
       const started = Date.now();
       try {
         const reply = await model.chat({
@@ -699,10 +722,35 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
           reasoning: "off",
           signal: AbortSignal.timeout(60_000),
         });
-        return { ok: true, ms: Date.now() - started, reply: reply.content.trim().slice(0, 200) };
+        const ms = Date.now() - started;
+        const vision = await canSeeImages(model, AbortSignal.timeout(60_000)).catch(() => false);
+        return { ok: true, ms, reply: reply.content.trim().slice(0, 200), vision };
       } catch (error) {
         return { ok: false, ms: Date.now() - started, error: message(error) };
       }
+    },
+
+    "POST /api/model/vision": async (body) => {
+      if (body.model !== undefined) {
+        const model = formModel(body.model as Record<string, unknown>);
+        return { vision: await canSeeImages(model, AbortSignal.timeout(60_000)) };
+      }
+      const current = home.moqi.model;
+      if (!current) throw new HttpError(409, "还没配置模型，先去设置里接一个");
+      let vision: boolean;
+      try {
+        vision = await canSeeImages(current, AbortSignal.timeout(60_000));
+      } catch (error) {
+        throw new HttpError(502, `模型出错了：${message(error)}`);
+      }
+      // Kept with the model it is about; a model from the environment has nowhere to keep it.
+      const file = readConfigFile(home.dir);
+      const live = home.config.model;
+      if (file.model && live && file.model.baseURL === live.baseURL && file.model.model === live.model) {
+        saveConfig(home.dir, { ...file, model: { ...file.model, vision } });
+        await home.reconfigure(loadConfig(home.dir, env));
+      }
+      return { vision };
     },
 
     "GET /api/geocode": async (_body, url) => {
@@ -783,6 +831,25 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       res.writeHead(200, { ...SECURITY_HEADERS, "Content-Type": asset.type });
       return void res.end(asset.body);
     }
+    if (url.pathname === "/api/media") {
+      if (!tokenOk(req.headers["x-moqi-token"])) return send(res, 401, { error: "需要从 moqi 打开的链接进入" });
+      try {
+        if (req.method === "POST") return send(res, 200, { id: home.media.save(await readImage(req)) });
+        if (req.method !== "GET") throw new HttpError(405, "只能上传或读取");
+        const id = url.searchParams.get("id") ?? "";
+        if (!MEDIA_ID.test(id)) throw new HttpError(400, "图片编号不对");
+        const found = home.media.read(id);
+        if (!found) throw new HttpError(404, "没有这张图片");
+        res.writeHead(200, {
+          ...SECURITY_HEADERS,
+          "Content-Type": found.type,
+          "Cache-Control": "private, max-age=31536000, immutable",
+        });
+        return void res.end(found.bytes);
+      } catch (error) {
+        return send(res, error instanceof HttpError ? error.status : 500, { error: message(error) });
+      }
+    }
     const route = routes[`${req.method} ${url.pathname}`];
     if (!route) return send(res, 404, { error: "没有这个地址" });
     if (!tokenOk(req.headers["x-moqi-token"])) return send(res, 401, { error: "需要从 moqi 打开的链接进入" });
@@ -832,6 +899,22 @@ function send(res: ServerResponse, status: number, data: unknown): void {
   if (res.headersSent) return void res.end();
   res.writeHead(status, { ...SECURITY_HEADERS, "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(data));
+}
+
+/** An uploaded image: raw bytes with an image content type, at most MEDIA_MAX, recognised by its header. */
+async function readImage(req: IncomingMessage): Promise<Buffer> {
+  if (!(req.headers["content-type"] ?? "").startsWith("image/")) throw new HttpError(415, "只收图片");
+  if (Number(req.headers["content-length"] ?? 0) > MEDIA_MAX) throw new HttpError(413, "图片太大了，最多 3 MB");
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > MEDIA_MAX) throw new HttpError(413, "图片太大了，最多 3 MB");
+    chunks.push(chunk as Buffer);
+  }
+  const bytes = Buffer.concat(chunks);
+  if (!sniff(bytes)) throw new HttpError(415, "只收 PNG、JPEG、GIF、WebP 图片");
+  return bytes;
 }
 
 async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {

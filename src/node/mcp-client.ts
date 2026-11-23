@@ -5,6 +5,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 import { defineTool, type Plugin, type Tool } from "../core/plugin.js";
+import type { MediaStore } from "./media.js";
 import { sitesFor } from "./presets.js";
 
 export interface McpServerConfig {
@@ -51,6 +52,7 @@ class Connection {
     readonly config: McpServerConfig,
     private readonly version: string,
     private readonly changed: () => void,
+    private readonly media?: MediaStore,
   ) {
     this.status = { name, state: "starting", tools: [] };
   }
@@ -139,17 +141,31 @@ class Connection {
       describe: () => `用 ${this.name} 的「${t.name}」`,
       run: async (args) => {
         const result = (await this.request("tools/call", { name: t.name, arguments: args })) as {
-          content?: { type: string; text?: string }[];
+          content?: { type: string; text?: string; data?: string }[];
           structuredContent?: unknown;
           isError?: boolean;
         };
+        // Images are kept for the user to see; the model gets a word for each.
+        const images: string[] = [];
+        const keep = (data: string): string => {
+          if (!this.media || images.length >= 4) return "[图片]";
+          try {
+            images.push(this.media.save(Buffer.from(data, "base64")));
+            return "[图片，已显示给用户]";
+          } catch {
+            return "[图片]";
+          }
+        };
         const text =
           (result.content ?? [])
-            .map((c) => (c.type === "text" ? (c.text ?? "") : `[${c.type}]`))
+            .map((c) =>
+              c.type === "text" ? (c.text ?? "") : c.type === "image" && c.data ? keep(c.data) : `[${c.type}]`,
+            )
             .join("\n")
             .trim() || (result.structuredContent ? JSON.stringify(result.structuredContent) : "（没有返回内容）");
         if (result.isError) throw new Error(text.slice(0, 500));
-        return text.slice(0, 8000);
+        const value = text.slice(0, 8000);
+        return images.length > 0 ? { value, headline: value, images } : value;
       },
     });
   }
@@ -205,7 +221,10 @@ export class McpHub {
   private readonly connections = new Map<string, Connection>();
   private onChange: () => void = () => {};
 
-  constructor(private readonly version: string) {}
+  constructor(
+    private readonly version: string,
+    private readonly media?: MediaStore,
+  ) {}
 
   /** Called when servers start, fail or change their tools. */
   watch(onChange: () => void): void {
@@ -222,7 +241,7 @@ export class McpHub {
     }
     for (const [name, config] of Object.entries(servers)) {
       if (this.connections.has(name)) continue;
-      const conn = new Connection(name, config, this.version, () => this.onChange());
+      const conn = new Connection(name, config, this.version, () => this.onChange(), this.media);
       this.connections.set(name, conn);
       void conn.start();
     }

@@ -10,6 +10,7 @@ import type { Launch } from "../src/node/code.js";
 import { readConfigFile } from "../src/node/config.js";
 import { type Console, type ConsoleOptions, confirmQueue, startConsole } from "../src/node/console/server.js";
 import { type Home, type HomeOptions, openHome } from "../src/node/home.js";
+import { RED_PNG } from "./helpers.js";
 
 type Reply = { content?: string; tool_calls?: { id: string; function: { name: string; arguments: string } }[] };
 
@@ -782,5 +783,92 @@ describe("confirm queue", () => {
     expect(asker.pending()?.text).toBe("B？");
     expect(await second).toBe(false); // timed out
     expect(asker.pending()).toBeUndefined();
+  });
+});
+
+describe("console: images", () => {
+  const T = "t".repeat(32);
+  const upload = (port: number, bytes: Uint8Array, type = "image/png", token = T) =>
+    fetch(`http://127.0.0.1:${port}/api/media`, {
+      method: "POST",
+      headers: { "x-moqi-token": token, "content-type": type },
+      body: new Blob([new Uint8Array(bytes)]),
+    });
+
+  it("takes images, gives them back, and sends them to the model with the message", async () => {
+    let seen: unknown;
+    const { ui, api } = await start({ model: MODEL, briefingAt: null }, (body) => {
+      seen = body.messages.at(-1);
+      return { content: "一个红色方块" };
+    });
+    expect((await upload(ui.port, RED_PNG, "image/png", "x".repeat(32))).status).toBe(401);
+    expect((await upload(ui.port, Buffer.from("hello"), "text/plain")).status).toBe(415);
+    expect((await upload(ui.port, Buffer.from("hello"), "image/png")).status).toBe(415);
+    const tooBig = await new Promise<number>((resolve, reject) => {
+      const req = request(
+        {
+          host: "127.0.0.1",
+          port: ui.port,
+          path: "/api/media",
+          method: "POST",
+          headers: { "x-moqi-token": T, "content-type": "image/png", "content-length": String(3 * 1024 * 1024 + 1) },
+        },
+        (res) => {
+          resolve(res.statusCode ?? 0);
+          res.resume();
+          req.destroy();
+        },
+      );
+      req.on("error", reject);
+      req.flushHeaders();
+    });
+    expect(tooBig).toBe(413);
+
+    const { id } = (await (await upload(ui.port, RED_PNG)).json()) as { id: string };
+    expect(id).toMatch(/^m_[0-9a-f]{16}$/);
+    const got = await fetch(`http://127.0.0.1:${ui.port}/api/media?id=${id}`, { headers: { "x-moqi-token": T } });
+    expect(got.headers.get("content-type")).toBe("image/png");
+    expect(Buffer.from(await got.arrayBuffer()).equals(RED_PNG)).toBe(true);
+    expect((await api("GET", "/api/media?id=../config.json")).status).toBe(400);
+    expect((await api("GET", "/api/media?id=m_0000000000000000")).status).toBe(404);
+
+    expect((await api("POST", "/api/chat", { text: "", images: [] })).status).toBe(400);
+    expect((await api("POST", "/api/chat", { text: "这是什么", images: ["m_0000000000000000"] })).status).toBe(400);
+    expect((await api("POST", "/api/chat", { text: "这是什么", images: [id], from: "kiro" })).status).toBe(400);
+    expect((await api("POST", "/api/chat", { text: "这是什么", images: [id] })).data.reply).toBe("一个红色方块");
+    expect(seen).toMatchObject({
+      role: "user",
+      content: [
+        { type: "text", text: "这是什么" },
+        { type: "image_url", image_url: { url: `data:image/png;base64,${RED_PNG.toString("base64")}` } },
+      ],
+    });
+    const state = (await api("GET", "/api/state")).data;
+    expect(state.messages.at(-2)).toMatchObject({ role: "user", text: "这是什么", images: [id] });
+    expect(state.vision).toBeNull();
+  });
+
+  it("finds out once whether the model can see, and forgets it when the model changes", async () => {
+    let answer = "红色";
+    const { dir, api } = await start({ model: MODEL, briefingAt: null }, () => ({ content: answer }));
+    expect((await api("POST", "/api/model/vision", {})).data).toEqual({ vision: true });
+    expect(readConfigFile(dir).model?.vision).toBe(true);
+    expect((await api("GET", "/api/state")).data.vision).toBe(true);
+    answer = "我看不到图片";
+    expect((await api("POST", "/api/model/vision", { model: MODEL })).data).toEqual({ vision: false });
+    expect(readConfigFile(dir).model?.vision).toBe(true); // testing a form's model does not save
+    const config = (await api("GET", "/api/config")).data.config;
+    await api("POST", "/api/config", { config: { ...config, model: { ...MODEL } } });
+    expect(readConfigFile(dir).model?.vision).toBe(true); // same model: kept
+    await api("POST", "/api/config", { config: { ...config, model: { ...MODEL, model: "m2" } } });
+    expect(readConfigFile(dir).model?.vision).toBeUndefined(); // another model: forgotten
+    await api("POST", "/api/config", { config: { ...config, model: { ...MODEL, model: "m2", vision: false } } });
+    expect(readConfigFile(dir).model?.vision).toBe(false); // the page tested this very model
+  });
+
+  it("lets images come from the page only, under the policy", async () => {
+    const { ui } = await start({});
+    const csp = (await fetch(`http://127.0.0.1:${ui.port}/`)).headers.get("content-security-policy") ?? "";
+    expect(csp).toContain("img-src 'self' data: blob:");
   });
 });
