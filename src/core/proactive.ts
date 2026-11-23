@@ -34,6 +34,8 @@ export interface Decision {
 
 /** Where an offer goes: an interruption, the feed (seen in the briefing or when the user looks), or nowhere. */
 export function decide(state: State, policy: Policy, offer: Offer, at: number): Decision {
+  // The user set this time themselves: the rules that guard against moqi's own initiative do not apply.
+  if (offer.userTimed) return { surface: "notify", reason: "你定的时间到了" };
   const stats = state.kind(offer.kind);
   // Reasons are shown to the user in the console, so they are plain Chinese.
   if (stats.muted) return { surface: "drop", reason: "你关掉了这类事" };

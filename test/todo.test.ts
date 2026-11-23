@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { Moqi } from "../src/core/moqi.js";
+import { Moqi } from "../src/core/moqi.js";
 import { State } from "../src/core/state.js";
 import { daysLate, describeTodo, laterTodos, resolveWhen, TODO, todayTodos, todoChange } from "../src/core/todo.js";
 import type { EventBody, MoqiEvent, Todo } from "../src/core/types.js";
-import { call, harness, scriptedModel } from "./helpers.js";
+import { call, DAY, harness, scriptedModel } from "./helpers.js";
 
 const at = (iso: string) => Date.parse(iso);
 const NOW = at("2026-11-20T10:00:00+08:00"); // a Friday
@@ -148,5 +148,89 @@ describe("todo tools", () => {
     expect(moqi.watchableTools().map((t) => t.name)).not.toContain("todo_list");
     expect(moqi.visibleTools().map((t) => t.name)).not.toContain("todo_undone");
     expect(moqi.visibleTools().map((t) => t.name)).toContain("todo_add");
+  });
+});
+
+describe("reminders", () => {
+  const news = { kind: "n", title: "新闻", body: "", value: 0.8, urgency: "today" } as const;
+  const reminders = <T extends { offer: { kind: string } }>(d: T[]) => d.filter((x) => x.offer.kind === "todo.remind");
+
+  it("reminds once at the time, even after a restart, and accepting ticks it off", async () => {
+    const { moqi, clock, delivered } = harness({ start: "2026-11-20T14:00:00+08:00" });
+    await add(moqi, { text: "交报告", at: "15:00" });
+    clock.set("2026-11-20T14:59:00+08:00");
+    await moqi.tick();
+    expect(reminders(delivered)).toHaveLength(0);
+    clock.set("2026-11-20T15:00:20+08:00");
+    await moqi.tick();
+    await moqi.tick();
+    expect(reminders(delivered)).toEqual([
+      expect.objectContaining({
+        surface: "notify",
+        offer: expect.objectContaining({ title: "交报告", body: "你定的 15:00", userTimed: true, urgency: "now" }),
+      }),
+    ]);
+    const again = new Moqi({
+      store: moqi.store,
+      clock,
+      briefingAt: null,
+      reflect: false,
+      study: false,
+      deliver: (offer, surface) => void delivered.push({ offer, surface }),
+    });
+    await again.tick();
+    expect(reminders(delivered)).toHaveLength(1);
+    const offerId = reminders(delivered)[0]?.offer.id ?? "";
+    expect(await again.feedback(offerId, "accepted")).toBe("勾掉了「交报告」，今天的都做完了");
+    expect(todos(again)[0]?.doneAt).toBe(clock.now());
+  });
+
+  it("reminds in quiet hours and with the day's budget spent, and costs no budget", async () => {
+    const { moqi, clock, delivered } = harness({ start: "2026-11-20T10:00:00+08:00" });
+    await add(moqi, { text: "开会", at: "10:30" });
+    for (let i = 0; i < 4; i++) await moqi.offer(news);
+    clock.set("2026-11-20T10:30:00+08:00");
+    await moqi.tick();
+    expect(delivered.map((d) => `${d.offer.kind}:${d.surface}`)).toEqual([
+      "n:notify",
+      "n:notify",
+      "n:notify",
+      "n:feed",
+      "todo.remind:notify",
+    ]);
+    expect(moqi.state.notifiedOn(clock.now())).toBe(3);
+
+    const night = harness({ start: "2026-11-20T22:00:00+08:00" });
+    await add(night.moqi, { text: "吃药", at: "23:00" });
+    night.clock.set("2026-11-20T23:00:00+08:00");
+    await night.moqi.tick();
+    const [sent] = reminders(night.delivered);
+    expect(sent?.surface).toBe("notify");
+    expect(night.moqi.state.offers.get(sent?.offer.id ?? "")?.reason).toBe("你定的时间到了");
+  });
+
+  it("treats a reminder more than half an hour late as an ordinary offer", async () => {
+    const { moqi, clock, delivered } = harness({ start: "2026-11-20T14:00:00+08:00" });
+    await add(moqi, { text: "交报告", at: "15:00" });
+    clock.set("2026-11-20T23:10:00+08:00"); // the computer was asleep; now it is quiet hours
+    await moqi.tick();
+    const [late] = reminders(delivered);
+    expect(late?.surface).toBe("feed");
+    expect(late?.offer).toMatchObject({ body: "本来 15:00 提醒你", value: 0.85, urgency: "today" });
+    expect(late?.offer).not.toHaveProperty("userTimed");
+  });
+
+  it("reminds again at a new time, and says how long it was put off", async () => {
+    const { moqi, clock, delivered } = harness({ start: "2026-11-19T09:00:00+08:00" });
+    await add(moqi, { text: "交报告" });
+    clock.advance(DAY); // 11-20 09:00, rolled over
+    const id = todos(moqi)[0]?.id as string;
+    await moqi.callTool("todo_update", { id, inMinutes: 10 }, { byUser: true });
+    clock.advance(10 * 60_000);
+    await moqi.tick();
+    await moqi.callTool("todo_update", { id, inMinutes: 5 }, { byUser: true });
+    clock.advance(5 * 60_000);
+    await moqi.tick();
+    expect(reminders(delivered).map((d) => d.offer.body)).toEqual(["你定的 09:10", "你定的 09:15"]);
   });
 });

@@ -1,6 +1,7 @@
 // Todos: what the user means to do, on a day and sometimes at a time. Pure functions over the state;
 // the Moqi class turns them into offers and events. Unfinished todos roll over by themselves: one planned
 // for an earlier day counts as today's, and how many days late it is shows how long it has been put off.
+import type { OfferInput } from "./plugin.js";
 import { dayKey, parseTime } from "./schedule.js";
 import type { State } from "./state.js";
 import type { Todo } from "./types.js";
@@ -201,4 +202,22 @@ export function todoChange(
     else if (input.at === null) change.remindAt = null;
   }
   return Object.keys(change).length === 0 ? "没有要改的" : change;
+}
+
+/** The reminder for a todo whose time has come. On time it is the user's own appointment; late, an ordinary offer. */
+export function reminderOffer(t: Todo, now: number): OfferInput {
+  const at = t.remindAt ?? now;
+  const late = now - at > TODO.lateMs;
+  const set = dayKey(at) === dayKey(now) ? timeOf(at) : `${dayLabel(dayKey(at), now)} ${timeOf(at)}`;
+  const lag = daysLate(t, now);
+  return {
+    kind: TODO_KIND.remind,
+    title: t.text,
+    body: `${late ? `本来 ${set} 提醒你` : `你定的 ${set}`}${lag > 0 ? `，已拖 ${lag} 天` : ""}`,
+    value: late ? 0.85 : 0.9,
+    urgency: late ? "today" : "now",
+    expiresAt: endOfDay(now),
+    action: { tool: "todo_done", args: { id: t.id } },
+    ...(!late && { userTimed: true as const }),
+  };
 }

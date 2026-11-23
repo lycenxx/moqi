@@ -10,6 +10,7 @@ import { findRoutines } from "./routines.js";
 import { dayKey, describeSchedule, minuteOfDay, nextRun, parseTime } from "./schedule.js";
 import { State } from "./state.js";
 import { STUDY, studiedOn, study } from "./study.js";
+import { dueReminders, reminderOffer } from "./todo.js";
 import { builtinTools, type Kernel } from "./tools.js";
 import {
   type Clock,
@@ -367,6 +368,7 @@ export class Moqi {
       }
     }
     const watchesRun = await this.runDueWatches(now);
+    await this.remindTodos(now);
     const ctx = this.pluginContext();
     for (const plugin of this.plugins) {
       try {
@@ -421,6 +423,14 @@ export class Moqi {
       }
     }
     return due.length;
+  }
+
+  /** Todos whose reminder time has come. The offer goes first: a reminder twice beats none. */
+  private async remindTodos(now: number): Promise<void> {
+    for (const todo of dueReminders(this.state, now)) {
+      await this.offer(reminderOffer(todo, now));
+      this.emit({ type: "todo.reminded", todoId: todo.id });
+    }
   }
 
   /** Every couple of hours while the user is awake, and soon after a conversation settles. In the background. */

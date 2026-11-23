@@ -71,4 +71,14 @@ describe("when to speak up", () => {
     expect(moqi.state.offers.get(offer.id)?.verdict).toBe("ignored");
     expect(moqi.state.kind("test").threshold).toBeCloseTo(RULES.thresholdStart + RULES.onIgnored);
   });
+  it("always lets through a reminder at the time the user set, and does not count it", async () => {
+    const { moqi } = harness({ start: "2026-11-20T23:30:00+08:00" });
+    await moqi.feedback((await moqi.offer(news())).id, "muted");
+    const timed = { ...news({ value: 0.1, urgency: "whenever", userTimed: true }), id: "x", createdAt: 0 };
+    const policy = { ...moqi.policy, dailyBudget: 0 };
+    expect(decide(moqi.state, policy, timed, moqi.clock.now())).toEqual({
+      surface: "notify",
+      reason: "你定的时间到了",
+    });
+  });
 });
