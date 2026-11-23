@@ -294,3 +294,45 @@ export function findRepeatedTodos(state: State, now: number): TodoRoutine[] {
 function hhmm(minutes: number): string {
   return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }
+
+function bandOf(minute: number): string {
+  return minute < 12 * 60 ? "上午" : minute < 18 * 60 ? "下午" : "晚上";
+}
+
+/** How the user dealt with their todos lately, for moqi's review of how to help. Empty without todos. */
+export function todoStats(state: State, now: number): string {
+  const recent = [...state.todos.values()].filter((t) => now - t.createdAt <= TODO.windowMs);
+  if (recent.length === 0) return "";
+  const self = recent.filter((t) => t.by === undefined).length;
+  const heard = recent.filter((t) => t.by === "moqi").length;
+  const done = recent.filter((t) => t.doneAt !== undefined && t.removedAt === undefined);
+  const removed = recent.filter((t) => t.removedAt !== undefined).length;
+  const open = recent.filter(isOpen);
+  const lines = [
+    `- 加了 ${recent.length} 条（自己加的 ${self}，你听出来的 ${heard}，其他 agent 加的 ${recent.length - self - heard}）；完成 ${done.length}，删掉 ${removed}，还开着 ${open.length}`,
+  ];
+  const lags = done.map((t) => Math.max(0, daysBetween(t.day, dayKey(t.doneAt ?? now))));
+  const late = lags.filter((l) => l > 0);
+  const average = late.length ? `，平均拖 ${(late.reduce((a, b) => a + b, 0) / late.length).toFixed(1)} 天` : "";
+  lines.push(`- 当天完成 ${lags.length - late.length} 条；拖过才完成的 ${late.length} 条${average}`);
+  const reminded = recent.filter((t) => t.remindAt !== undefined && t.remindedAt !== undefined);
+  for (const band of ["上午", "下午", "晚上"]) {
+    const inBand = reminded.filter((t) => bandOf(minuteOfDay(t.remindAt ?? 0)) === band);
+    if (inBand.length === 0) continue;
+    const soon = inBand.filter((t) => t.doneAt !== undefined && t.doneAt - (t.remindAt ?? 0) <= TODO.doneSoonMs).length;
+    lines.push(`- ${band}的提醒 ${inBand.length} 次，提醒后 2 小时内完成 ${soon} 次`);
+  }
+  const lastDone = [...done]
+    .sort((a, b) => (b.doneAt ?? 0) - (a.doneAt ?? 0))
+    .slice(0, 5)
+    .map((t) => t.text);
+  if (lastDone.length) lines.push(`- 最近完成：${lastDone.join("、")}`);
+  const stuck = open
+    .map((t) => ({ text: t.text, late: daysLate(t, now) }))
+    .filter((x) => x.late > 0)
+    .sort((a, b) => b.late - a.late)
+    .slice(0, 3)
+    .map((x) => `${x.text}（已拖 ${x.late} 天）`);
+  if (stuck.length) lines.push(`- 拖得最久：${stuck.join("、")}`);
+  return lines.join("\n");
+}

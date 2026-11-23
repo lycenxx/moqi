@@ -8,6 +8,7 @@ import type { Moqi } from "./moqi.js";
 import { gatherContext } from "./reflect.js";
 import { dayKey } from "./schedule.js";
 import type { State } from "./state.js";
+import { todoStats } from "./todo.js";
 import { type Note, newId } from "./types.js";
 
 export const STUDY = {
@@ -28,8 +29,8 @@ export const STUDY = {
 
 const VERDICTS = { accepted: "接受", dismissed: "拒绝", ignored: "没理", muted: "关掉了这类" } as const;
 
-const LESSONS_SYSTEM = `你是 moqi（默契），用户的个人助理。现在用户不在，你在复盘：回看你最近为用户做的事、提的建议和 TA 的反应，总结以后怎样更好地帮 TA。
-经验要具体、能照着做，一句话，例如「天气提醒放在早上 7 点前，用户更常接受」「用户对手机新闻不感兴趣，别推」「问问题时一次只问一件事，用户更愿意回答」。
+const LESSONS_SYSTEM = `你是 moqi（默契），用户的个人助理。现在用户不在，你在复盘：回看你最近为用户做的事、提的建议、TA 的反应和 TA 怎么处理待办，总结以后怎样更好地帮 TA。
+经验要具体、能照着做，一句话，例如「天气提醒放在早上 7 点前，用户更常接受」「用户对手机新闻不感兴趣，别推」「问问题时一次只问一件事，用户更愿意回答」「晚上 8 点后的提醒，用户多半拖到第二天；提醒尽量定在下午」。
 只写有证据支持的；和已有经验重复的不写；已有经验被新的反应推翻的，把它的编号放进 retire。
 只输出 JSON：{"lessons":["…"],"retire":["l_…"]}，最多 3 条，没有就输出 {"lessons":[],"retire":[]}。`;
 
@@ -123,6 +124,7 @@ async function reviewLessons(moqi: Moqi, signal?: AbortSignal): Promise<number> 
     .flatMap((e) => (e.type === "tool.called" && !e.ok ? [`- ${e.tool} ${JSON.stringify(e.args).slice(0, 80)}`] : []))
     .slice(-5);
   const existing = [...state.lessons.values()].map((l) => `- [${l.id}] ${l.content}`);
+  const todos = todoStats(state, now);
   const reply = await model.chat({
     messages: [
       { role: "system", content: LESSONS_SYSTEM },
@@ -133,6 +135,7 @@ async function reviewLessons(moqi: Moqi, signal?: AbortSignal): Promise<number> 
           `## 每类提议的反应\n${kinds.join("\n") || "（还没有）"}`,
           `## 最近的提议和反应\n${recent.join("\n") || "（还没有）"}`,
           failed.length ? `## 最近没做成的事\n${failed.join("\n")}` : "",
+          todos ? `## 待办的情况（最近 14 天）\n${todos}` : "",
           `## 已有经验\n${existing.join("\n") || "（还没有）"}`,
         ]
           .filter(Boolean)

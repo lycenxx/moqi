@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { systemPrompt } from "../src/core/agent.js";
 import type { ChatRequest } from "../src/core/model.js";
 import type { Plugin } from "../src/core/plugin.js";
-import { STUDY } from "../src/core/study.js";
+import { lessonsDue, STUDY } from "../src/core/study.js";
 import { articleText, newsPlugin } from "../src/plugins/news.js";
 import { HOUR, harness, scriptedModel } from "./helpers.js";
 
@@ -53,6 +53,38 @@ async function giveFeedback(moqi: ReturnType<typeof harness>["moqi"], verdicts: 
 }
 
 describe("study", () => {
+  it("reviews how the user handles todos, and a few ticked off start a review", async () => {
+    const model = scriptedModel((r) =>
+      kindOf(r) === "lessons" ? JSON.stringify({ lessons: ["晚上的提醒常被拖到第二天，尽量定在下午"] }) : "{}",
+    );
+    const { moqi, clock } = harness({ model, start: "2026-11-18T09:00:00+08:00" });
+    const call = (tool: string, args: Record<string, unknown>) => moqi.callTool(tool, args, { byUser: true });
+    await call("todo_add", { text: "交报告", at: "20:30" });
+    await call("todo_add", { text: "买牛奶" });
+    await call("todo_add", { text: "开会", at: "10:00" });
+    const [report, milk, meeting] = [...moqi.state.todos.values()].map((t) => t.id);
+    clock.set("2026-11-18T10:00:00+08:00");
+    await moqi.tick();
+    clock.set("2026-11-18T10:30:00+08:00");
+    await call("todo_done", { id: meeting });
+    clock.set("2026-11-18T20:30:00+08:00");
+    await moqi.tick();
+    clock.set("2026-11-19T12:00:00+08:00");
+    expect(lessonsDue(moqi.state)).toBe(false);
+    await call("todo_done", { id: report });
+    await call("todo_done", { id: milk });
+    expect(lessonsDue(moqi.state)).toBe(true);
+
+    expect(await moqi.study()).toBe(1);
+    const prompt = String(model.requests.find((r) => kindOf(r) === "lessons")?.messages[1]?.content);
+    expect(prompt).toContain("## 待办的情况（最近 14 天）");
+    expect(prompt).toContain("- 加了 3 条（自己加的 3，你听出来的 0，其他 agent 加的 0）；完成 3，删掉 0，还开着 0");
+    expect(prompt).toContain("- 当天完成 1 条；拖过才完成的 2 条，平均拖 1.0 天");
+    expect(prompt).toContain("- 上午的提醒 1 次，提醒后 2 小时内完成 1 次");
+    expect(prompt).toContain("- 晚上的提醒 1 次，提醒后 2 小时内完成 0 次");
+    expect([...moqi.state.lessons.values()].map((l) => l.content)).toEqual(["晚上的提醒常被拖到第二天，尽量定在下午"]);
+  });
+
   it("reads an article the user would care about and keeps notes with their source", async () => {
     const model = scriptedModel((r) => {
       const k = kindOf(r);
