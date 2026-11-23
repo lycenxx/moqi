@@ -5,6 +5,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 import { defineTool, type Plugin, type Tool } from "../core/plugin.js";
+import { sitesFor } from "./presets.js";
 
 export interface McpServerConfig {
   readonly command: string;
@@ -130,6 +131,8 @@ class Connection {
       // Whether a write is harmless is the user's call, not the server's: every MCP write starts out dangerous.
       ...(!readOnly && { danger: true }),
       source: this.name,
+      // Playwright's tools that only open or move around a site can be granted per site and turn.
+      ...(!readOnly && sitesFor(this.config)?.[t.name] && { site: sitesFor(this.config)?.[t.name] }),
       // The arguments go in full under the question, so the question itself stays short.
       describe: () => `用 ${this.name} 的「${t.name}」`,
       run: async (args) => {

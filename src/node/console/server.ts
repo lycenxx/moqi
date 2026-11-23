@@ -1,9 +1,10 @@
 // The console: a page on 127.0.0.1 for chatting, answering offers, seeing memories and changing settings.
 // It is served by the running home, so the page, the terminal and (later) the phone all go through one process.
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { join } from "node:path";
 import { FACT_KINDS, isFaded } from "../../core/memory.js";
 import { openAICompatible } from "../../core/model.js";
 import { describeSchedule } from "../../core/schedule.js";
@@ -15,6 +16,7 @@ import { connectAgent, disconnectAgent, findAgents, importableServers } from "..
 import type { Config } from "../config.js";
 import { ConfigSchema, expandHome, loadConfig, readConfigFile, saveConfig } from "../config.js";
 import type { Home } from "../home.js";
+import { browserPreset } from "../presets.js";
 import { A2A_PATH, AGENT_CARD_PATH, agentCard, handleA2A } from "./a2a.js";
 import { CONSOLE_HOST, consoleUrl } from "./info.js";
 
@@ -392,6 +394,17 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
           agents: (file.a2a?.agents ?? []).map((a) => ({ name: a.name, url: a.url, hasKey: !!a.key })),
         },
       };
+    },
+
+    "POST /api/preset": async (body) => {
+      if (body.name !== "browser") throw new HttpError(400, "没有这个能力包");
+      const on = body.on === true;
+      if (on) mkdirSync(join(home.dir, "browser"), { recursive: true, mode: 0o700 });
+      await updateConfig((c) => {
+        const { browser: _old, ...rest } = c.mcp?.servers ?? {};
+        return { ...c, mcp: { servers: on ? { ...rest, browser: browserPreset(home.dir) } : rest } };
+      });
+      return { ok: true };
     },
 
     "POST /api/mcp/add": async (body) => {

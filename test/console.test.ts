@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -549,6 +549,16 @@ describe("console: connecting other agents", () => {
 });
 
 describe("console: tools and agents moqi uses", () => {
+  it("adds and removes the browser preset", async () => {
+    const { dir, api } = await start({ briefingAt: null });
+    expect((await api("POST", "/api/preset", { name: "nope", on: true })).status).toBe(400);
+    expect((await api("POST", "/api/preset", { name: "browser", on: true })).status).toBe(200);
+    expect(readConfigFile(dir).mcp?.servers.browser?.args).toContain("@playwright/mcp@0.0.86");
+    expect(existsSync(join(dir, "browser"))).toBe(true);
+    expect((await api("POST", "/api/preset", { name: "browser", on: false })).status).toBe(200);
+    expect(readConfigFile(dir).mcp?.servers.browser).toBeUndefined();
+  });
+
   it("keeps MCP servers and A2A agents when the settings page is saved", async () => {
     const { dir, api } = await start({
       briefingAt: null,
