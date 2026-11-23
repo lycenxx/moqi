@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-23
+
+- Fix: after a crash left the last line of `events.jsonl` half written, the next event was written onto the same line and lost on the following start. The log now ends a torn last line before writing again. Thanks @lycenxx (#1).
+
 ## [0.7.0] - 2026-11-23
 
 - Images in the conversation: paste, drop or pick up to 4 images; moqi checks once whether the model can see them (it shows the model a red square) and greys out the button when it cannot. Images stay under `~/.moqi/media` and go only to your model; the last three messages with images keep them. Answers are formatted: lists, bold, code with a copy button, tables and link cards, with no HTML and nothing loaded from outside. Images that tools bring back (browser and macOS screenshots, MCP servers) show under the answer and can be opened large.
