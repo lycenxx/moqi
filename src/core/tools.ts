@@ -2,8 +2,19 @@ import { z } from "zod";
 import { LEVELS } from "./autonomy.js";
 import { FACT_KINDS } from "./memory.js";
 import { defineTool, type Tool } from "./plugin.js";
-import { describeSchedule, nextRun, validateSchedule } from "./schedule.js";
-import { newId, type Schedule, type Watch } from "./types.js";
+import { dayKey, describeSchedule, nextRun, validateSchedule } from "./schedule.js";
+import {
+  describeAdded,
+  describeTodo,
+  laterTodos,
+  openTodos,
+  recentlyDone,
+  resolveWhen,
+  TODO,
+  todayTodos,
+  todoChange,
+} from "./todo.js";
+import { newId, type Schedule, type Todo, type Watch } from "./types.js";
 
 /** What built-in tools need from moqi. */
 export interface Kernel {
@@ -34,6 +45,19 @@ const WatchInput = z.object({
   remind: z.string().optional().describe("Reminder text, when there is no tool"),
   notify: z.enum(["on-change", "always"]).default("on-change"),
 });
+
+const When = {
+  day: z.string().optional().describe("today, tomorrow or YYYY-MM-DD (local). Default today"),
+  at: z.string().optional().describe("HH:MM local time to remind the user. Leave out for no reminder"),
+  inMinutes: z.number().int().min(1).max(1440).optional().describe("Remind this many minutes from now, instead of at"),
+};
+
+function todoProblem(k: Kernel, id: string, mustBeOpen = true): string | undefined {
+  const t = k.state.todos.get(id);
+  if (!t || t.removedAt !== undefined) return `没有 ${id} 这件待办`;
+  if (mustBeOpen && t.doneAt !== undefined) return "这件已经做完了";
+  return undefined;
+}
 
 // biome-ignore lint/suspicious/noExplicitAny: each built-in tool has its own argument type
 export function builtinTools(k: Kernel): Tool<any>[] {
@@ -137,6 +161,140 @@ export function builtinTools(k: Kernel): Tool<any>[] {
         if (!w) return `没有 ${id}`;
         k.emit({ type: "watch.cancelled", watchId: id });
         return `已停掉「${w.title}」`;
+      },
+    }),
+    defineTool({
+      name: "todo_add",
+      description:
+        "Put something the user means to do on their todo list, for a day (default today), and remind them at a time if they want (at, or inMinutes). Use it for 提醒我…, 记一下…, and things the user says they have to do. Repeating reminders (every day, every week) are watch_create.",
+      input: z.object({
+        text: z.string().trim().min(1).max(TODO.maxText),
+        ...When,
+        by: z.string().max(40).optional().describe("Leave out"),
+      }),
+      effect: "write",
+      start: "auto", // the user asked for it, and it is undone with one tap
+      cap: "auto",
+      describe: (a) => `记下待办「${a.text}」`,
+      validate: (a) => {
+        if (openTodos(k.state).length >= TODO.maxOpen) return `未完成的待办已经有 ${TODO.maxOpen} 条了，先清理一些`;
+        const w = resolveWhen(a, k.now());
+        return typeof w === "string" ? w : undefined;
+      },
+      run: (a) => {
+        const now = k.now();
+        const w = resolveWhen(a, now);
+        if (typeof w === "string") return w;
+        const todo: Todo = {
+          id: newId("t"),
+          text: a.text,
+          day: w.day,
+          ...(w.remindAt !== undefined && { remindAt: w.remindAt }),
+          ...(a.by && { by: a.by }),
+          createdAt: now,
+        };
+        k.emit({ type: "todo.added", todo });
+        return `记下了：${describeAdded(todo, now)}（${todo.id}）`;
+      },
+    }),
+    defineTool({
+      name: "todo_list",
+      description: "The user's todo list with ids: today (including what was put off), later, and done today.",
+      input: z.object({}),
+      effect: "read",
+      run: () => {
+        const now = k.now();
+        const line = (t: Todo) => `[${t.id}] ${describeTodo(t, now)}`;
+        const today = todayTodos(k.state, now).map(line);
+        const later = laterTodos(k.state, now).map(line);
+        const done = recentlyDone(k.state, now)
+          .filter((t) => t.doneAt !== undefined && dayKey(t.doneAt) === dayKey(now))
+          .map((t) => `[${t.id}] ${t.text}`);
+        if (today.length + later.length + done.length === 0) return "（没有待办）";
+        return [
+          `今天：\n${today.join("\n") || "（没有）"}`,
+          later.length ? `以后：\n${later.join("\n")}` : "",
+          done.length ? `今天做完的：\n${done.join("\n")}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+      },
+    }),
+    defineTool({
+      name: "todo_done",
+      description: "Mark one of the user's todos done, by id.",
+      input: z.object({ id: z.string() }),
+      effect: "write",
+      start: "auto",
+      cap: "auto",
+      describe: ({ id }) => `勾掉「${k.state.todos.get(id)?.text ?? id}」`,
+      validate: ({ id }) => todoProblem(k, id),
+      run: ({ id }) => {
+        const text = k.state.todos.get(id)?.text ?? id;
+        k.emit({ type: "todo.done", todoId: id });
+        const left = todayTodos(k.state, k.now()).length;
+        return `勾掉了「${text}」${left ? `，今天还剩 ${left} 件` : "，今天的都做完了"}`;
+      },
+    }),
+    defineTool({
+      name: "todo_undone",
+      description: "Mark a done todo as not done again.",
+      input: z.object({ id: z.string() }),
+      effect: "write",
+      start: "auto",
+      cap: "auto",
+      hidden: true, // the console's checkbox; the model has todo_add for anything new
+      validate: ({ id }) =>
+        todoProblem(k, id, false) ?? (k.state.todos.get(id)?.doneAt === undefined ? "这件还没做完" : undefined),
+      run: ({ id }) => {
+        k.emit({ type: "todo.undone", todoId: id });
+        return `「${k.state.todos.get(id)?.text ?? id}」改回没做完`;
+      },
+    }),
+    defineTool({
+      name: "todo_update",
+      description:
+        "Change one of the user's todos by id: its text, its day (moving it keeps the reminder's time of day), or its reminder (at, inMinutes, or at: null to drop it).",
+      input: z.object({
+        id: z.string(),
+        text: z.string().trim().min(1).max(TODO.maxText).optional(),
+        day: When.day,
+        at: z.string().nullable().optional().describe("HH:MM local time to remind, or null to drop the reminder"),
+        inMinutes: When.inMinutes,
+      }),
+      effect: "write",
+      start: "auto",
+      cap: "auto",
+      describe: ({ id }) => `改待办「${k.state.todos.get(id)?.text ?? id}」`,
+      validate: (a) => {
+        const problem = todoProblem(k, a.id);
+        const t = k.state.todos.get(a.id);
+        if (problem || !t) return problem;
+        const change = todoChange(t, a, k.now());
+        return typeof change === "string" ? change : undefined;
+      },
+      run: (a) => {
+        const now = k.now();
+        const t = k.state.todos.get(a.id);
+        if (!t) return `没有 ${a.id} 这件待办`;
+        const change = todoChange(t, a, now);
+        if (typeof change === "string") return change;
+        k.emit({ type: "todo.updated", todoId: a.id, ...change });
+        const after = k.state.todos.get(a.id) ?? t;
+        return `改好了：${describeAdded(after, now)}`;
+      },
+    }),
+    defineTool({
+      name: "todo_remove",
+      description: "Delete one of the user's todos by id, when they no longer mean to do it.",
+      input: z.object({ id: z.string() }),
+      effect: "write",
+      describe: ({ id }) => `删掉待办「${k.state.todos.get(id)?.text ?? id}」`,
+      validate: ({ id }) => todoProblem(k, id, false),
+      run: ({ id }) => {
+        const text = k.state.todos.get(id)?.text ?? id;
+        k.emit({ type: "todo.removed", todoId: id });
+        return `删掉了「${text}」`;
       },
     }),
     defineTool({

@@ -26,6 +26,9 @@ import {
 } from "./types.js";
 import { runWatch } from "./watch.js";
 
+/** Read tools that make no sense on a schedule: they list moqi's own state. */
+const UNWATCHABLE = ["list_memories", "watch_list", "todo_list"];
+
 export interface MoqiOptions {
   readonly store?: EventStore;
   /** Needed for chat and learning. Briefings, watches and routines work without one. */
@@ -117,7 +120,7 @@ export class Moqi {
   /** Read tools a watch may call on a schedule. */
   private isWatchable(name: string): boolean {
     const tool = this.tools.get(name);
-    return !!tool && tool.effect === "read" && !tool.hidden && !["list_memories", "watch_list"].includes(name);
+    return !!tool && tool.effect === "read" && !tool.hidden && !UNWATCHABLE.includes(name);
   }
 
   visibleTools(): Tool[] {
@@ -475,7 +478,7 @@ export class Moqi {
     );
     const automatable = (name: string) => {
       const tool = this.tools.get(name);
-      return !!tool && tool.effect === "read" && !tool.hidden && !["list_memories", "watch_list"].includes(name);
+      return !!tool && tool.effect === "read" && !tool.hidden && !UNWATCHABLE.includes(name);
     };
     for (const r of findRoutines(this.state, now, automatable)) {
       if (offered.has(r.key) || watched.has(`${r.tool}:${JSON.stringify(r.args)}`)) continue;
