@@ -1,7 +1,7 @@
 import { chatTurn, learn } from "./agent.js";
 import { needsConfirmation, promotionDue } from "./autonomy.js";
 import { type Briefing, composeBriefing } from "./briefing.js";
-import { type RememberInput, rememberEvents } from "./memory.js";
+import { normalize, type RememberInput, rememberEvents } from "./memory.js";
 import type { ChatModel } from "./model.js";
 import { actionPolicy, type OfferInput, type Plugin, type PluginContext, resultText, type Tool } from "./plugin.js";
 import { decide, defaultPolicy, inQuietHours, type Policy } from "./proactive.js";
@@ -10,7 +10,7 @@ import { findRoutines } from "./routines.js";
 import { dayKey, describeSchedule, minuteOfDay, nextRun, parseTime } from "./schedule.js";
 import { State } from "./state.js";
 import { STUDY, studiedOn, study } from "./study.js";
-import { dueReminders, reminderOffer, reviewOffer, TODO, TODO_KIND } from "./todo.js";
+import { dueReminders, findRepeatedTodos, reminderOffer, reviewOffer, TODO, TODO_KIND } from "./todo.js";
 import { builtinTools, type Kernel } from "./tools.js";
 import {
   type Clock,
@@ -382,6 +382,7 @@ export class Moqi {
     await this.maybeBrief(now);
     await this.maybeReviewTodos(now);
     await this.offerRoutines(now);
+    await this.offerTodoRoutines(now);
     this.maybeReflect(now);
     this.maybeStudy(now);
     const offers = [...this.state.offers.values()].slice(before).map((r) => r.offer);
@@ -528,6 +529,31 @@ export class Moqi {
             notify: "always",
             routineKey: r.key,
           },
+        },
+      });
+    }
+  }
+  /** "You added it three times; the fourth time you shouldn't have to." Each habit is offered once. */
+  private async offerTodoRoutines(now: number): Promise<void> {
+    const offered = new Set(
+      [...this.state.offers.values()]
+        .filter((r) => r.offer.kind === TODO_KIND.routine)
+        .map((r) => String(r.offer.action?.args.routineKey)),
+    );
+    const reminded = new Set(
+      [...this.state.watches.values()].flatMap((w) => ("remind" in w.check ? [normalize(w.check.remind)] : [])),
+    );
+    for (const r of findRepeatedTodos(this.state, now)) {
+      if (offered.has(r.key) || reminded.has(r.key.slice("todo:".length))) continue;
+      await this.offer({
+        kind: TODO_KIND.routine,
+        title: `以后每天提醒你「${r.text}」？`,
+        body: `这 ${r.days} 天你每天都加了这一条。接受后每天 ${r.at} 提醒你，不用再加。`,
+        value: 0.6,
+        urgency: "whenever",
+        action: {
+          tool: "watch_create",
+          args: { title: r.text, schedule: { every: "day", at: r.at }, remind: r.text, routineKey: r.key },
         },
       });
     }

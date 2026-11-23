@@ -1,8 +1,9 @@
 // Todos: what the user means to do, on a day and sometimes at a time. Pure functions over the state;
 // the Moqi class turns them into offers and events. Unfinished todos roll over by themselves: one planned
 // for an earlier day counts as today's, and how many days late it is shows how long it has been put off.
+import { normalize } from "./memory.js";
 import type { BriefingSection, OfferInput } from "./plugin.js";
-import { dayKey, parseTime } from "./schedule.js";
+import { dayKey, minuteOfDay, parseTime } from "./schedule.js";
 import type { State } from "./state.js";
 import type { Todo } from "./types.js";
 
@@ -253,4 +254,43 @@ export function todoContext(state: State, now: number): string {
   return [`今天：\n${today.join("\n") || "（没有）"}`, later.length ? `以后：\n${later.join("\n")}` : ""]
     .filter(Boolean)
     .join("\n");
+}
+
+export interface TodoRoutine {
+  /** Stable, so the same habit is offered once: "todo:" and the normalized text. */
+  readonly key: string;
+  readonly text: string;
+  /** Local "HH:MM" for a daily reminder. */
+  readonly at: string;
+  readonly days: number;
+}
+
+/**
+ * The same todo added for 3 or more different days lately: worth a daily reminder instead. The time is
+ * the usual reminder time when most of them had one, else when the user usually adds it, to the quarter hour.
+ */
+export function findRepeatedTodos(state: State, now: number): TodoRoutine[] {
+  const groups = new Map<string, Todo[]>();
+  for (const t of state.todos.values()) {
+    if (now - t.createdAt > TODO.windowMs) continue;
+    const key = normalize(t.text);
+    if (key) groups.set(key, [...(groups.get(key) ?? []), t]);
+  }
+  const routines: TodoRoutine[] = [];
+  for (const [key, list] of groups) {
+    const days = new Set(list.map((t) => t.day)).size;
+    const last = list.at(-1);
+    if (days < TODO.routineDays || !last) continue;
+    const timed = list.flatMap((t) => (t.remindAt === undefined ? [] : [minuteOfDay(t.remindAt)]));
+    const byReminder = timed.length * 2 > list.length;
+    const minutes = (byReminder ? timed : list.map((t) => minuteOfDay(t.createdAt))).sort((a, b) => a - b);
+    const median = minutes[Math.floor(minutes.length / 2)] ?? 9 * 60;
+    const at = byReminder ? median : Math.floor(median / 15) * 15;
+    routines.push({ key: `todo:${key}`, text: last.text, at: hhmm(at), days });
+  }
+  return routines;
+}
+
+function hhmm(minutes: number): string {
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }

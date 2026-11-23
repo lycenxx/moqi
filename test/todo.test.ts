@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { Moqi } from "../src/core/moqi.js";
 import { State } from "../src/core/state.js";
-import { daysLate, describeTodo, laterTodos, resolveWhen, TODO, todayTodos, todoChange } from "../src/core/todo.js";
+import {
+  daysLate,
+  describeTodo,
+  findRepeatedTodos,
+  laterTodos,
+  resolveWhen,
+  TODO,
+  todayTodos,
+  todoChange,
+} from "../src/core/todo.js";
 import type { EventBody, MoqiEvent, Todo } from "../src/core/types.js";
 import { call, DAY, harness, scriptedModel } from "./helpers.js";
 
@@ -284,5 +293,61 @@ describe("evening review", () => {
     late.clock.set("2026-11-20T23:15:00+08:00"); // moqi was off all evening
     await late.moqi.tick();
     expect(reviews(late.delivered)).toHaveLength(0);
+  });
+});
+
+describe("todos that repeat", () => {
+  const routines = <T extends { offer: { kind: string } }>(d: T[]) => d.filter((x) => x.offer.kind === "todo.routine");
+
+  it("offers a daily reminder once the same todo was added for three days, and sets it up on yes", async () => {
+    const { moqi, clock, delivered } = harness({ start: "2026-11-18T17:40:00+08:00" });
+    for (const day of ["18", "19", "20"]) {
+      clock.set(`2026-11-${day}T17:40:00+08:00`);
+      await add(moqi, { text: "写日报", at: "18:00" });
+      await moqi.tick();
+    }
+    const [offer] = routines(delivered);
+    expect(routines(delivered)).toHaveLength(1);
+    expect(offer?.offer).toMatchObject({
+      title: "以后每天提醒你「写日报」？",
+      body: "这 3 天你每天都加了这一条。接受后每天 18:00 提醒你，不用再加。",
+      urgency: "whenever",
+    });
+    await moqi.feedback(offer?.offer.id ?? "", "accepted");
+    expect([...moqi.state.watches.values()]).toMatchObject([
+      { title: "写日报", schedule: { every: "day", at: "18:00" }, check: { remind: "写日报" } },
+    ]);
+    clock.set("2026-11-21T17:40:00+08:00");
+    await add(moqi, { text: "写日报", at: "18:00" });
+    await moqi.tick();
+    expect(routines(delivered)).toHaveLength(1);
+  });
+
+  it("needs three days, skips what a watch already reminds of, and times untimed ones by when they were added", async () => {
+    const { moqi, clock, delivered } = harness({ start: "2026-11-18T09:00:00+08:00" });
+    await moqi.callTool(
+      "watch_create",
+      { title: "喝水", schedule: { every: "day", at: "10:00" }, remind: "喝水" },
+      { byUser: true, preApproved: true },
+    );
+    for (const [day, time] of [
+      ["18", "09:10"],
+      ["19", "09:40"],
+      ["20", "09:20"],
+    ] as const) {
+      clock.set(`2026-11-${day}T${time}:00+08:00`);
+      await add(moqi, { text: "喝水！" });
+      await add(moqi, { text: "背单词" });
+    }
+    clock.set("2026-11-20T09:30:00+08:00");
+    await add(moqi, { text: "跑步" });
+    clock.set("2026-11-21T09:30:00+08:00");
+    await add(moqi, { text: "跑步" });
+    expect(findRepeatedTodos(moqi.state, clock.now())).toEqual([
+      { key: "todo:喝水", text: "喝水！", at: "09:15", days: 3 },
+      { key: "todo:背单词", text: "背单词", at: "09:15", days: 3 },
+    ]);
+    await moqi.tick();
+    expect(routines(delivered).map((d) => d.offer.title)).toEqual(["以后每天提醒你「背单词」？"]);
   });
 });
