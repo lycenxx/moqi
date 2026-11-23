@@ -46,7 +46,15 @@ export interface Tool<A = unknown> {
   run(args: A, ctx: ToolContext): Promise<ToolResult> | ToolResult;
 }
 
-export type ToolResult = string | { readonly value: string; readonly headline: string; readonly details?: string };
+export type ToolResult =
+  | string
+  | {
+      readonly value: string;
+      readonly headline: string;
+      readonly details?: string;
+      /** Media ids of images to show the user under the answer; the model only sees the words. */
+      readonly images?: readonly string[];
+    };
 
 export function defineTool<A>(tool: Tool<A>): Tool<A> {
   return tool;

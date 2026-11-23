@@ -3,7 +3,7 @@ import { guarded, levelOf, needsConfirmation, promotionDue, rank } from "./auton
 import { type Briefing, composeBriefing } from "./briefing.js";
 import { type CodeResult, type CodeRunner, codeOffer, codeTools } from "./code.js";
 import { normalize, type RememberInput, rememberEvents } from "./memory.js";
-import type { ChatModel } from "./model.js";
+import type { ChatModel, ImagePart } from "./model.js";
 import { actionPolicy, type OfferInput, type Plugin, type PluginContext, resultText, type Tool } from "./plugin.js";
 import { decide, defaultPolicy, inQuietHours, type Policy } from "./proactive.js";
 import { REFLECT, reflect } from "./reflect.js";
@@ -61,6 +61,8 @@ export interface MoqiOptions {
   readonly study?: boolean;
   /** Runs coding tasks; absent: no coding agents. */
   readonly code?: CodeRunner;
+  /** Reads the images messages refer to, by media id. Without it, images are mentioned as "[图片]". */
+  readonly media?: { load(id: string): Promise<ImagePart | undefined> };
 }
 
 export interface TickReport {
@@ -135,8 +137,17 @@ export class Moqi {
     while (this.background.size > 0) await Promise.all([...this.background]);
   }
 
-  /** One conversation turn. `fromAgent`: another agent wrote it, so it counts as outside content. */
-  chat(text: string, signal?: AbortSignal, how?: { readonly fromAgent?: boolean }): Promise<string> {
+  /** An image a message refers to, for the model; undefined when it is gone or there is no media. */
+  async loadImage(id: string): Promise<ImagePart | undefined> {
+    return (await this.options.media?.load(id)) ?? undefined;
+  }
+
+  /** One conversation turn. `fromAgent`: another agent wrote it, so it counts as outside content. `images`: media ids. */
+  chat(
+    text: string,
+    signal?: AbortSignal,
+    how?: { readonly fromAgent?: boolean; readonly images?: readonly string[] },
+  ): Promise<string> {
     return chatTurn(this, text, signal, how);
   }
 
@@ -352,7 +363,14 @@ export class Moqi {
   async callTool(
     name: string,
     args: Record<string, unknown>,
-    how: { byUser: boolean; preApproved?: boolean; confirmed?: boolean; tainted?: boolean; sites?: SiteGrant },
+    how: {
+      byUser: boolean;
+      preApproved?: boolean;
+      confirmed?: boolean;
+      tainted?: boolean;
+      sites?: SiteGrant;
+      images?: string[]; // where images a tool brings back are collected
+    },
   ): Promise<string> {
     const tool = this.tools.get(name);
     if (!tool) return `没有工具 ${name}`;
@@ -423,7 +441,9 @@ export class Moqi {
     }
     let text: string;
     try {
-      text = resultText(await tool.run(parsed.data, ctx));
+      const out = await tool.run(parsed.data, ctx);
+      text = resultText(out);
+      if (how.images && typeof out === "object" && out.images) how.images.push(...out.images);
       // Where the browser ended up decides whether the next move on the page needs asking. Any tool of the
       // browser may move it (typing Enter submits a form); a site tool that does not say where it is leaves
       // the page unknown, so the next move asks.

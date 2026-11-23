@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { systemPrompt } from "../src/core/agent.js";
-import type { ChatRequest } from "../src/core/model.js";
+import type { ChatMessage, ChatRequest } from "../src/core/model.js";
+import { defineTool } from "../src/core/plugin.js";
 import { call, harness, scriptedModel } from "./helpers.js";
 
 const isExtraction = (r: ChatRequest) => r.messages[0]?.content.includes("从对话里摘出用户亲口说的") ?? false;
@@ -167,5 +169,102 @@ describe("openAICompatible", () => {
     await glimmer.chat({ messages, reasoning: "off" });
     await glimmer.chat({ messages });
     expect(bodies.map((b) => b.reasoning_effort)).toEqual(["low", undefined]);
+  });
+});
+
+describe("images in chat", () => {
+  const media = (ids: string[]) => ({
+    load: async (id: string) => (ids.includes(id) ? { type: "image/png", data: `data-${id}` } : undefined),
+  });
+  const userMessages = (r: { messages: readonly ChatMessage[] } | undefined) =>
+    (r?.messages ?? []).flatMap((m) => (m.role === "user" ? [m] : []));
+
+  it("gives the model the user's images, and only the last three messages with images keep them", async () => {
+    const model = scriptedModel(() => "好");
+    const { moqi } = harness({ model, media: media(["m_1", "m_2", "m_3", "m_4"]) });
+    for (const id of ["m_1", "m_2", "m_3"]) await moqi.chat(`看 ${id}`, undefined, { images: [id] });
+    await moqi.chat("看最后一张", undefined, { images: ["m_4"] });
+    const sent = userMessages(model.requests.at(-1));
+    expect(sent.map((m) => m.content)).toEqual(["看 m_1 [图片]", "看 m_2", "看 m_3", "看最后一张"]);
+    expect(sent.map((m) => (m.images ?? []).map((i) => i.data))).toEqual([
+      [],
+      ["data-m_2"],
+      ["data-m_3"],
+      ["data-m_4"],
+    ]);
+    const logged = moqi.store.all().flatMap((e) => (e.type === "message" && e.role === "user" ? [e.images] : []));
+    expect(logged).toEqual([["m_1"], ["m_2"], ["m_3"], ["m_4"]]);
+  });
+
+  it("says [图片] for an image it cannot read, and sends an image without words", async () => {
+    const model = scriptedModel(() => "好");
+    const { moqi } = harness({ model, media: media(["m_ok"]) });
+    await moqi.chat("", undefined, { images: ["m_ok"] });
+    expect(userMessages(model.requests.at(-1)).at(-1)).toEqual({
+      role: "user",
+      content: "",
+      images: [{ type: "image/png", data: "data-m_ok" }],
+    });
+    await moqi.chat("这张呢", undefined, { images: ["m_gone"] });
+    expect(userMessages(model.requests.at(-1)).at(-1)).toEqual({ role: "user", content: "这张呢 [图片]" });
+  });
+
+  it("puts the images tools brought back under the answer, not in front of the model", async () => {
+    const shot = defineTool({
+      name: "shot",
+      description: "Take a picture",
+      input: z.object({}),
+      effect: "read",
+      run: () => ({ value: "截好了", headline: "截好了", images: ["m_shot"] }),
+    });
+    const model = scriptedModel((r) => (r.messages.some((m) => m.role === "tool") ? "给你" : call("shot", {})));
+    const { moqi } = harness({ model, plugins: [{ name: "cam", tools: [shot] }] });
+    expect(await moqi.chat("截个图")).toBe("给你");
+    const tool = model.requests.at(-1)?.messages.find((m) => m.role === "tool");
+    expect(tool?.content).toBe("截好了");
+    const answer = moqi.store
+      .all()
+      .filter((e) => e.type === "message")
+      .at(-1);
+    expect(answer).toMatchObject({ role: "assistant", text: "给你", images: ["m_shot"] });
+  });
+});
+
+describe("openAICompatible with images", () => {
+  it("sends images as content parts, with /no_think on the words", async () => {
+    const { openAICompatible } = await import("../src/core/model.js");
+    const bodies: { messages: { content: unknown }[] }[] = [];
+    const fetch = (async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({ choices: [{ message: { content: "红色" } }] }));
+    }) as typeof globalThis.fetch;
+    const model = openAICompatible({ baseURL: "http://x/v1", model: "qwen3-vl", noThink: true, fetch });
+    await model.chat({
+      messages: [{ role: "user", content: "这是什么", images: [{ type: "image/png", data: "QUJD" }] }],
+      reasoning: "off",
+    });
+    expect(bodies[0]?.messages[0]?.content).toEqual([
+      { type: "text", text: "这是什么 /no_think" },
+      { type: "image_url", image_url: { url: "data:image/png;base64,QUJD" } },
+    ]);
+  });
+
+  it("tells a model that sees from one that does not", async () => {
+    const { canSeeImages } = await import("../src/core/model.js");
+    const said = (content: string) => ({ id: "m", chat: async () => ({ content, toolCalls: [] }) });
+    const fails = (message: string) => ({
+      id: "m",
+      chat: async () => {
+        throw new Error(message);
+      },
+    });
+    expect(await canSeeImages(said("红色"))).toBe(true);
+    expect(await canSeeImages(said("Red."))).toBe(true);
+    expect(await canSeeImages(said("我看不到图片"))).toBe(false);
+    expect(await canSeeImages(fails("http://x/v1/chat/completions responded 400: image input not supported"))).toBe(
+      false,
+    );
+    await expect(canSeeImages(fails("fetch failed"))).rejects.toThrow("fetch failed");
+    await expect(canSeeImages(fails("http://x/v1/chat/completions responded 401: bad key"))).rejects.toThrow("401");
   });
 });
