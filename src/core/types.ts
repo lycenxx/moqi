@@ -144,6 +144,25 @@ export interface Todo {
 }
 
 // ---------------------------------------------------------------------------
+// Coding tasks (交给编程 agent)
+// ---------------------------------------------------------------------------
+
+/** A coding task handed to a coding agent, worked on a branch of its own in a worktree outside the project. */
+export interface CodeTask {
+  readonly id: string;
+  readonly agent: string;
+  /** The repository root. */
+  readonly project: string;
+  readonly task: string;
+  readonly branch: string;
+  /** The worktree. */
+  readonly dir: string;
+  /** The commit the branch started from. */
+  readonly base: string;
+  readonly startedAt: number;
+}
+
+// ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
 
@@ -173,6 +192,18 @@ export type EventBody =
   | { type: "todo.undone"; todoId: string }
   | { type: "todo.removed"; todoId: string }
   | { type: "todo.reminded"; todoId: string }
+  | { type: "code.started"; task: CodeTask }
+  | {
+      type: "code.finished";
+      taskId: string;
+      ok: boolean;
+      summary: string;
+      files: readonly string[];
+      stat: string;
+      error?: string;
+    }
+  | { type: "code.merged"; taskId: string }
+  | { type: "code.discarded"; taskId: string }
   | { type: "kind.unmuted"; kind: string }
   | { type: "lesson.learned"; lesson: Lesson }
   | { type: "lesson.removed"; lessonId: string }

@@ -38,6 +38,8 @@ export interface Tool<A = unknown> {
   readonly noWatch?: true;
   /** Says in plain words what a call will do, for the confirmation question, e.g. "每天 22:00 提醒你「早点睡」". */
   describe?(args: A): string;
+  /** More about a call for its confirmation, after the arguments: what it passes on, what it may run. */
+  explain?(args: A): string;
   /** Rejects a call before anyone is asked to approve it. Returns the problem, or undefined if the call is fine. */
   validate?(args: A, ctx: ToolContext): string | undefined;
   /** Return a short result for the model. For watches, `{ value, headline }` lets moqi compare runs. */

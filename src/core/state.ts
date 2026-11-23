@@ -1,5 +1,6 @@
 import { dayKey } from "./schedule.js";
 import type {
+  CodeTask,
   Conflict,
   Fact,
   Idea,
@@ -50,6 +51,16 @@ export interface Study {
   readonly skipped?: string;
 }
 
+export interface CodeTaskState {
+  readonly task: CodeTask;
+  readonly status: "running" | "done" | "failed" | "merged" | "discarded";
+  readonly summary?: string;
+  readonly files?: readonly string[];
+  readonly stat?: string;
+  readonly error?: string;
+  readonly finishedAt?: number;
+}
+
 export interface Thought {
   readonly at: number;
   readonly trigger: "timer" | "chat" | "user";
@@ -86,6 +97,7 @@ export class State {
   readonly toolPolicies = new Map<string, ToolPolicy>();
   readonly watches = new Map<string, Watch>();
   readonly todos = new Map<string, Todo>();
+  readonly codeTasks = new Map<string, CodeTaskState>();
   readonly notifiedPerDay = new Map<string, number>();
   readonly userToolUses: ToolUse[] = [];
   /** The most recent reflections, newest last. */
@@ -293,6 +305,29 @@ export class State {
         if (!t || t.removedAt !== undefined) break;
         this.todos.set(e.todoId, { ...t, removedAt: e.at });
         this.feedbackCount++;
+        break;
+      }
+      case "code.started":
+        this.codeTasks.set(e.task.id, { task: e.task, status: "running" });
+        break;
+      case "code.finished": {
+        const t = this.codeTasks.get(e.taskId);
+        if (t?.status !== "running") break;
+        this.codeTasks.set(e.taskId, {
+          ...t,
+          status: e.ok ? "done" : "failed",
+          summary: e.summary,
+          files: e.files,
+          stat: e.stat,
+          ...(e.error && { error: e.error }),
+          finishedAt: e.at,
+        });
+        break;
+      }
+      case "code.merged":
+      case "code.discarded": {
+        const t = this.codeTasks.get(e.taskId);
+        if (t) this.codeTasks.set(e.taskId, { ...t, status: e.type === "code.merged" ? "merged" : "discarded" });
         break;
       }
       case "todo.reminded": {

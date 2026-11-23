@@ -2,6 +2,7 @@
 export { AGENT, chatTurn, learn, systemPrompt } from "./agent.js";
 export { type ActionPolicy, guarded, LEVELS, levelOf, needsConfirmation, promotionDue } from "./autonomy.js";
 export { type Briefing, composeBriefing } from "./briefing.js";
+export * from "./code.js";
 export { extractFacts, LEARN, parseJsonObject } from "./learn.js";
 export {
   activeFacts,

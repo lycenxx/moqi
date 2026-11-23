@@ -1,6 +1,7 @@
 import { chatTurn, learn } from "./agent.js";
 import { guarded, needsConfirmation, promotionDue } from "./autonomy.js";
 import { type Briefing, composeBriefing } from "./briefing.js";
+import { type CodeResult, type CodeRunner, codeOffer, codeTools } from "./code.js";
 import { normalize, type RememberInput, rememberEvents } from "./memory.js";
 import type { ChatModel } from "./model.js";
 import { actionPolicy, type OfferInput, type Plugin, type PluginContext, resultText, type Tool } from "./plugin.js";
@@ -53,6 +54,8 @@ export interface MoqiOptions {
   readonly reflect?: boolean;
   /** Learn on its own while the user is away: lessons from feedback, notes from articles. Default true. */
   readonly study?: boolean;
+  /** Runs coding tasks; absent: no coding agents. */
+  readonly code?: CodeRunner;
 }
 
 export interface TickReport {
@@ -97,6 +100,7 @@ export class Moqi {
     };
     const owned: [Tool, string][] = [
       ...builtinTools(kernel).map((t): [Tool, string] => [t, "moqi"]),
+      ...(options.code ? codeTools(kernel, options.code).map((t): [Tool, string] => [t, t.source ?? "moqi"]) : []),
       ...this.plugins.flatMap((p) => (p.tools ?? []).map((t): [Tool, string] => [t, t.source ?? p.name])),
     ];
     for (const [tool, source] of owned) {
@@ -216,6 +220,32 @@ export class Moqi {
     return `没有 ${id}`;
   }
 
+  /** The host's word that a coding task ended. Recorded once, then offered to the user. */
+  codeFinished(taskId: string, result: CodeResult): void {
+    const t = this.state.codeTasks.get(taskId);
+    if (t?.status !== "running") return;
+    this.emit({
+      type: "code.finished",
+      taskId,
+      ok: result.ok,
+      summary: result.summary,
+      files: result.files,
+      stat: result.stat,
+      ...(result.error && { error: result.error }),
+    });
+    void this.offer(
+      codeOffer(t.task, result, this.options.code?.label(t.task.agent) ?? t.task.agent, this.clock.now()),
+    );
+  }
+
+  /** After a restart: tasks the log calls running but no process runs any more were cut short. */
+  recoverCode(): void {
+    const live = new Set(this.options.code?.running() ?? []);
+    for (const [id, t] of this.state.codeTasks)
+      if (t.status === "running" && !live.has(id))
+        this.codeFinished(id, { ok: false, summary: "", files: [], stat: "", error: "moqi 重启了，任务中断" });
+  }
+
   /** Thinks about the user now and offers what comes of it. One reflection at a time. */
   reflect(trigger: "timer" | "chat" | "user" = "user"): Promise<Idea[]> {
     if (this.thinking) return this.thinking;
@@ -311,13 +341,18 @@ export class Moqi {
       if (asked || preApproved) {
         const what = tool.describe?.(parsed.data) ?? describeAction(tool, parsed.data as Record<string, unknown>);
         const question =
-          guard && !tool.describe ? `要我用「${this.sourceOf(name)}」的 ${name} 吗？` : `要我${what}吗？`;
+          guard && !tool.describe
+            ? `要我用「${this.sourceOf(name)}」的 ${name} 吗？`
+            : `要我${what}${/[A-Za-z0-9]$/.test(what) ? " " : ""}吗？`; // "合并进 main 吗", not "main吗"
         const reason = offered
           ? "offer"
           : tainted && this.state.toolPolicies.get(name) === "auto"
             ? "outside"
             : "danger";
-        const details = tool.danger ? dangerDetails(args, guard ? reason : undefined) : undefined;
+        const more = tool.explain?.(parsed.data);
+        const details = tool.danger
+          ? `${dangerDetails(args, guard ? reason : undefined)}${more ? `\n\n${more}` : ""}`
+          : undefined;
         const approved = preApproved || (await this.ask(question, details));
         if (tool.effect === "write") this.emit({ type: "approval", kind: name, approved });
         if (!approved) return "用户没有同意，这一步没做";
