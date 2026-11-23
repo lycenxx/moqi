@@ -64,6 +64,8 @@ class Connection {
       });
       this.child = child;
       child.on("error", (error) => this.fail(error.message));
+      // A server that exits or closes its stdin makes writes fail with EPIPE; unhandled, that would crash moqi.
+      child.stdin?.on("error", (error) => this.fail(`连接断了（${error.message}）`));
       child.on("exit", (code) => {
         if (this.status.state !== "stopped") this.fail(`进程退出了（${code ?? "信号"}）`);
       });

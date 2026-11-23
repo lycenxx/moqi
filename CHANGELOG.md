@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Fix: an MCP server that exited or closed its input right after starting could crash moqi with `EPIPE`; it is now marked failed. A macOS command that exits without reading its input no longer crashes moqi either.
 - Fix: merging a coding task failed in a repository without a git identity, and said there was a conflict. The merge commit now uses moqi as its author there, like moqi's commit in the worktree, and a merge that fails for another reason says why.
 
 ## [0.6.0] - 2026-11-23

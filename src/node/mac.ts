@@ -23,6 +23,9 @@ export const runCommand: Exec = (file, args, options = {}) =>
       const killed = (error as { killed?: boolean }).killed === true;
       fail(new Error(killed ? `超过 ${Math.round(timeout / 1000)} 秒没完成` : String(stderr || error.message).trim()));
     });
+    // A command that exits without reading its input makes this write fail with EPIPE; the callback above reports
+    // how the command ended, and unhandled, the write error would crash moqi.
+    child.stdin?.on("error", () => {});
     child.stdin?.end(options.input ?? "");
   });
 

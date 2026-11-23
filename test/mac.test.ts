@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { type Exec, listShortcuts, macPlugin, shortcutName } from "../src/node/mac.js";
+import { type Exec, listShortcuts, macPlugin, runCommand, shortcutName } from "../src/node/mac.js";
 import { harness } from "./helpers.js";
 
 function fake() {
@@ -87,5 +87,9 @@ describe("macOS", () => {
     );
     expect(await listShortcuts(f.exec, "darwin")).toEqual(["早上模式", "给老板发消息"]);
     expect(await listShortcuts(f.exec, "linux")).toBeUndefined();
+  });
+
+  it("survives a command that exits without reading its input", async () => {
+    expect(await runCommand(process.execPath, ["-e", "process.exit(0)"], { input: "x".repeat(4_000_000) })).toBe("");
   });
 });

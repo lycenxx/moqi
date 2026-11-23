@@ -119,6 +119,13 @@ describe("moqi uses MCP servers", () => {
     await h.reconfigure({ ...h.config, mcp: { servers: {} } });
     expect(h.mcpStatus()).toEqual([]);
   });
+
+  it("survives a server that stops reading what moqi writes", async () => {
+    const deaf = join(import.meta.dirname, "fixtures", "deaf-mcp.mjs");
+    const h = home({ mcp: { servers: { deaf: { command: process.execPath, args: [deaf] } } } });
+    await waitFor(() => h.mcpStatus().every((s) => s.state !== "starting"));
+    expect(h.mcpStatus()).toMatchObject([{ name: "deaf", state: "failed" }]);
+  });
 });
 
 describe("moqi asks other agents over A2A", () => {
