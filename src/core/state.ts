@@ -95,6 +95,8 @@ export class State {
   readonly kinds = new Map<string, KindStats>();
   readonly trust = new Map<string, Trust>();
   readonly toolPolicies = new Map<string, ToolPolicy>();
+  /** Sites the user allowed for good ("以后都允许"); opening and browsing there is not asked. */
+  readonly sites = new Set<string>();
   readonly watches = new Map<string, Watch>();
   readonly todos = new Map<string, Todo>();
   readonly codeTasks = new Map<string, CodeTaskState>();
@@ -250,6 +252,12 @@ export class State {
         break;
       case "tool.policy":
         this.toolPolicies.set(e.tool, e.policy);
+        break;
+      case "site.remembered":
+        this.sites.add(e.host);
+        break;
+      case "site.forgotten":
+        this.sites.delete(e.host);
         break;
       case "watch.created":
         this.watches.set(e.watch.id, e.watch);

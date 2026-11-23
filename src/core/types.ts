@@ -103,6 +103,14 @@ export type Level = "inform" | "suggest" | "auto-undo" | "auto";
 /** What the user decided about one dangerous tool: always ask, unlocked, or not dangerous after all. */
 export type ToolPolicy = "ask" | "auto" | "normal";
 
+/** What the user answered: yes, no, or yes and do not ask about this again ("以后都允许"). */
+export type Answer = boolean | "always";
+
+/** Extra answers a question offers. `always`: the label of the "do not ask again" button. */
+export interface Choices {
+  readonly always: string;
+}
+
 // ---------------------------------------------------------------------------
 // Watches (托管事务)
 // ---------------------------------------------------------------------------
@@ -185,6 +193,8 @@ export type EventBody =
   | { type: "approval"; kind: string; approved: boolean }
   | { type: "level.changed"; kind: string; level: Level }
   | { type: "tool.policy"; tool: string; policy: ToolPolicy }
+  | { type: "site.remembered"; host: string }
+  | { type: "site.forgotten"; host: string }
   | { type: "watch.created"; watch: Watch }
   | { type: "watch.ran"; watchId: string; value: string; headline: string; changed: boolean; nextAt: number }
   | { type: "watch.cancelled"; watchId: string }

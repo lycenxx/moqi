@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ChatRequest } from "../src/core/model.js";
 import { defineTool, type Plugin } from "../src/core/plugin.js";
 import { hostOf, siteDecision } from "../src/core/sites.js";
+import { State } from "../src/core/state.js";
 import { call, harness, scriptedModel } from "./helpers.js";
 
 function browser() {
@@ -154,6 +155,59 @@ describe("site grants", () => {
       model: steps(call("snapshot", {}, "c1"), call("navigate", { url: "https://jd.com" }, "c2")),
     });
     await turn.moqi.chat("看看再打开京东");
-    expect(turn.asked).toEqual(["要我用「browser」的 navigate 吗？"]); // read outside content, so an unlocked tool asks
+    expect(turn.asked).toEqual(["要我打开 jd.com 吗？"]); // read outside content: an unlocked tool asks for the site
+  });
+
+  it("remembers a site the user allowed for good, until they remove it", async () => {
+    const b = browser();
+    const { moqi, asked } = harness({
+      plugins: [b.plugin],
+      answer: (q) => (q.startsWith("要我打开") ? "always" : true),
+      model: scriptedModel((r: ChatRequest) => {
+        const turn = r.messages.filter((m) => m.role === "user").length;
+        const done = r.messages.filter((m) => m.role === "tool").length;
+        const script = [
+          [call("navigate", { url: "https://www.jd.com/" }, "a1")],
+          [
+            call("navigate", { url: "https://item.jd.com/1.html" }, "b1"),
+            call("click", { target: "e1" }, "b2"),
+            call("type", { text: "耳机" }, "b3"),
+          ],
+          [call("navigate", { url: "https://jd.com/" }, "c1")],
+        ];
+        return script[turn - 1]?.[done] ?? "好";
+      }),
+    });
+    await moqi.chat("打开京东");
+    expect(asked).toEqual(["要我打开 jd.com 吗？"]);
+    expect(moqi.rememberedSites()).toEqual(["jd.com"]);
+    expect([...State.from(moqi.store.all()).sites]).toEqual(["jd.com"]);
+
+    await moqi.chat("看看这款耳机，搜一下");
+    expect(asked).toEqual(["要我打开 jd.com 吗？", "要我用「browser」的 type 吗？"]); // typing still asks
+
+    expect(moqi.forgetSite("jd.com")).toBe(true);
+    expect(moqi.forgetSite("jd.com")).toBe(false);
+    await moqi.chat("再打开京东");
+    expect(asked.at(-1)).toBe("要我打开 jd.com 吗？");
+  });
+
+  it("lets an unlocked browser keep going on sites it was given after reading a page, and asks at a new one", async () => {
+    const b = browser();
+    const { moqi, asked } = harness({
+      plugins: [b.plugin],
+      model: steps(
+        call("navigate", { url: "https://jd.com/" }, "c1"),
+        call("snapshot", {}, "c2"),
+        call("click", { target: "e1" }, "c3"),
+        call("navigate", { url: "https://evil.test/" }, "c4"),
+        call("click", { target: "e2" }, "c5"),
+      ),
+    });
+    moqi.setToolPolicy("navigate", "auto");
+    moqi.setToolPolicy("click", "auto");
+    await moqi.chat("打开京东看看");
+    expect(asked).toEqual(["要我打开 evil.test 吗？"]);
+    expect(b.done.map((d) => d.split(" ")[0])).toEqual(["navigate", "snapshot", "click", "navigate", "click"]);
   });
 });
