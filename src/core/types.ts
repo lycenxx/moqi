@@ -56,6 +56,8 @@ export interface Offer {
   readonly answer?: "text";
   /** Where to read more, e.g. the articles a world idea is about. Only http(s) URLs. */
   readonly links?: readonly { readonly title: string; readonly url: string }[];
+  /** The user asked to be told at this time (a todo reminder): it notifies whatever the rules, and costs no budget. */
+  readonly userTimed?: true;
 }
 
 export type IdeaType = "serve" | "ask" | "world";
@@ -115,6 +117,28 @@ export interface Watch {
 }
 
 // ---------------------------------------------------------------------------
+// Todos (待办)
+// ---------------------------------------------------------------------------
+
+/** Something the user means to do on a day, sometimes at a set time. */
+export interface Todo {
+  readonly id: string;
+  readonly text: string;
+  /** The local day it is planned for, YYYY-MM-DD. Unfinished todos from earlier days count as today's. */
+  readonly day: string;
+  /** When to remind the user. Without it, the todo is only on the list and in the briefing. */
+  readonly remindAt?: number;
+  /** Who added it: absent for the user, "moqi" for one moqi heard in conversation, else another agent's name. */
+  readonly by?: string;
+  readonly createdAt: number;
+  readonly doneAt?: number;
+  /** Deleted todos stay in the state for review; nothing shows them. */
+  readonly removedAt?: number;
+  /** When the reminder went out, so each reminder time is used once. */
+  readonly remindedAt?: number;
+}
+
+// ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
 
@@ -137,6 +161,12 @@ export type EventBody =
   | { type: "watch.created"; watch: Watch }
   | { type: "watch.ran"; watchId: string; value: string; headline: string; changed: boolean; nextAt: number }
   | { type: "watch.cancelled"; watchId: string }
+  | { type: "todo.added"; todo: Todo }
+  | { type: "todo.updated"; todoId: string; text?: string; day?: string; remindAt?: number | null }
+  | { type: "todo.done"; todoId: string }
+  | { type: "todo.undone"; todoId: string }
+  | { type: "todo.removed"; todoId: string }
+  | { type: "todo.reminded"; todoId: string }
   | { type: "kind.unmuted"; kind: string }
   | { type: "lesson.learned"; lesson: Lesson }
   | { type: "lesson.removed"; lessonId: string }

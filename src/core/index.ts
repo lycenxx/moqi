@@ -42,5 +42,6 @@ export { findRoutines, ROUTINE, type Routine } from "./routines.js";
 export { dayKey, describeSchedule, minuteOfDay, nextRun, parseTime, validateSchedule } from "./schedule.js";
 export { type KindStats, type OfferRecord, RULES, State, type Study, type Thought, type Trust } from "./state.js";
 export { lessonsDue, STUDY, study, studySection } from "./study.js";
+export * from "./todo.js";
 export * from "./types.js";
 export { runWatch, type WatchDeps, type WatchOutcome, watchGraph } from "./watch.js";

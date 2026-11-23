@@ -1,5 +1,18 @@
 import { dayKey } from "./schedule.js";
-import type { Conflict, Fact, Idea, Lesson, Level, MoqiEvent, Note, Offer, Surface, Verdict, Watch } from "./types.js";
+import type {
+  Conflict,
+  Fact,
+  Idea,
+  Lesson,
+  Level,
+  MoqiEvent,
+  Note,
+  Offer,
+  Surface,
+  Todo,
+  Verdict,
+  Watch,
+} from "./types.js";
 
 export const RULES = {
   /** Separate confirmations that make a fact long-term. */
@@ -70,6 +83,7 @@ export class State {
   readonly kinds = new Map<string, KindStats>();
   readonly trust = new Map<string, Trust>();
   readonly watches = new Map<string, Watch>();
+  readonly todos = new Map<string, Todo>();
   readonly notifiedPerDay = new Map<string, number>();
   readonly userToolUses: ToolUse[] = [];
   /** The most recent reflections, newest last. */
@@ -78,7 +92,7 @@ export class State {
   readonly notes = new Map<string, Note>();
   /** The most recent study sessions, newest last. */
   readonly studies: Study[] = [];
-  /** Every answer the user gave to an offer, ignoring included. */
+  /** Every answer the user gave to an offer, ignoring included, and every todo they finished or deleted. */
   feedbackCount = 0;
   userMessages = 0;
   lastUserMessageAt = 0;
@@ -176,7 +190,7 @@ export class State {
         if (!r) break;
         r.surface = e.surface;
         if (e.reason) r.reason = e.reason;
-        if (e.surface === "notify") {
+        if (e.surface === "notify" && !r.offer.userTimed) {
           const day = dayKey(e.at);
           this.notifiedPerDay.set(day, (this.notifiedPerDay.get(day) ?? 0) + 1);
         }
@@ -233,6 +247,51 @@ export class State {
       case "watch.cancelled":
         this.watches.delete(e.watchId);
         break;
+      case "todo.added":
+        this.todos.set(e.todo.id, e.todo);
+        break;
+      case "todo.updated": {
+        const t = this.todos.get(e.todoId);
+        if (!t) break;
+        let next: Todo = {
+          ...t,
+          ...(e.text !== undefined && { text: e.text }),
+          ...(e.day !== undefined && { day: e.day }),
+        };
+        if (e.remindAt !== undefined) {
+          // A new reminder time is reminded again.
+          const { remindAt: _old, remindedAt: _sent, ...rest } = next;
+          next = e.remindAt === null ? rest : { ...rest, remindAt: e.remindAt };
+        }
+        this.todos.set(e.todoId, next);
+        break;
+      }
+      case "todo.done": {
+        const t = this.todos.get(e.todoId);
+        if (!t || t.doneAt !== undefined || t.removedAt !== undefined) break;
+        this.todos.set(e.todoId, { ...t, doneAt: e.at });
+        this.feedbackCount++; // finishing something is a reaction too; enough of them start a review
+        break;
+      }
+      case "todo.undone": {
+        const t = this.todos.get(e.todoId);
+        if (!t || t.doneAt === undefined) break;
+        const { doneAt: _done, ...rest } = t;
+        this.todos.set(e.todoId, rest);
+        break;
+      }
+      case "todo.removed": {
+        const t = this.todos.get(e.todoId);
+        if (!t || t.removedAt !== undefined) break;
+        this.todos.set(e.todoId, { ...t, removedAt: e.at });
+        this.feedbackCount++;
+        break;
+      }
+      case "todo.reminded": {
+        const t = this.todos.get(e.todoId);
+        if (t) this.todos.set(e.todoId, { ...t, remindedAt: e.at });
+        break;
+      }
       case "observation":
         break;
     }
