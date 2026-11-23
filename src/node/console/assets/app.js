@@ -1201,6 +1201,7 @@ async function addImages(files) {
       a.id = await upload(await shrink(file));
     } catch (error) {
       a.error = error.message;
+      toast(`有一张图片没传上：${error.message}`);
     }
     a.uploading = false;
     renderAttach();
@@ -1220,7 +1221,12 @@ function renderAttach() {
     });
     const cls = `thumb${a.error ? " bad" : ""}${a.uploading ? " busy" : ""}`;
     strip.append(
-      h("div", { class: cls, title: a.error || "" }, h("img", { src: a.preview, alt: "要发的图片" }), remove),
+      h(
+        "div",
+        { class: cls, title: a.error || "" },
+        h("img", { src: a.preview, alt: a.error ? `没传上的图片：${a.error}` : "要发的图片" }),
+        remove,
+      ),
     );
   }
   const blocked = state?.vision === false;
@@ -1505,8 +1511,8 @@ $("m-test").addEventListener("click", async (e) => {
     const secs = (r.ms / 1000).toFixed(1);
     if (r.ok) {
       const m = modelInput();
-      tested = { baseURL: m.baseURL, model: m.model, vision: r.vision === true };
-      const sees = r.vision ? "，能看图" : "，看不了图";
+      tested = typeof r.vision === "boolean" ? { baseURL: m.baseURL, model: m.model, vision: r.vision } : null;
+      const sees = r.vision === true ? "，能看图" : r.vision === false ? "，看不了图" : "，没测出能不能看图";
       setResult(out, r.reply ? `连上了（${secs} 秒${sees}）：${r.reply}` : `连上了（${secs} 秒${sees}）`, "ok");
     } else setResult(out, `连不上：${r.error}`, "bad");
   } catch (error) {

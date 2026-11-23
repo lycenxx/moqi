@@ -743,7 +743,8 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
           signal: AbortSignal.timeout(60_000),
         });
         const ms = Date.now() - started;
-        const vision = await canSeeImages(model, AbortSignal.timeout(60_000)).catch(() => false);
+        // No answer about images (a timeout, a bad key) is not "cannot see": null, and nothing is kept.
+        const vision = await canSeeImages(model, AbortSignal.timeout(60_000)).catch(() => null);
         return { ok: true, ms, reply: reply.content.trim().slice(0, 200), vision };
       } catch (error) {
         return { ok: false, ms: Date.now() - started, error: message(error) };
@@ -757,6 +758,8 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       }
       const current = home.moqi.model;
       if (!current) throw new HttpError(409, "还没配置模型，先去设置里接一个");
+      // The model this answer is about, taken now: the settings may change while the check runs.
+      const asked = home.config.model && { baseURL: home.config.model.baseURL, model: home.config.model.model };
       let vision: boolean;
       try {
         vision = await canSeeImages(current, AbortSignal.timeout(60_000));
@@ -765,8 +768,7 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       }
       // Kept with the model it is about; a model from the environment has nowhere to keep it.
       const file = readConfigFile(home.dir);
-      const live = home.config.model;
-      if (file.model && live && file.model.baseURL === live.baseURL && file.model.model === live.model) {
+      if (file.model && asked && file.model.baseURL === asked.baseURL && file.model.model === asked.model) {
         saveConfig(home.dir, { ...file, model: { ...file.model, vision } });
         await home.reconfigure(loadConfig(home.dir, env));
       }
