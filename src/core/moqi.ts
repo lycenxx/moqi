@@ -1,5 +1,5 @@
 import { chatTurn, learn } from "./agent.js";
-import { guarded, needsConfirmation, promotionDue } from "./autonomy.js";
+import { guarded, levelOf, needsConfirmation, promotionDue, rank } from "./autonomy.js";
 import { type Briefing, composeBriefing } from "./briefing.js";
 import { type CodeResult, type CodeRunner, codeOffer, codeTools } from "./code.js";
 import { normalize, type RememberInput, rememberEvents } from "./memory.js";
@@ -189,6 +189,36 @@ export class Moqi {
     if (!this.state.sites.has(host)) return false;
     this.emit({ type: "site.forgotten", host });
     return true;
+  }
+
+  /** Write tools the user may let run without asking: visible, not dangerous, asked first, allowed higher. */
+  ordinaryTools(): { name: string; source: string; level: "ask" | "auto" }[] {
+    return [...this.tools.values()]
+      .filter((t) => this.isOrdinary(t))
+      .map((t) => ({
+        name: t.name,
+        source: this.sourceOf(t.name),
+        level: rank(levelOf(this.state, t.name, actionPolicy(t))) <= rank("suggest") ? "ask" : "auto",
+      }));
+  }
+
+  /** The user's own switch for one ordinary tool, the same level the trust ladder raises. */
+  setToolLevel(name: string, level: "ask" | "auto"): string {
+    const tool = this.tools.get(name);
+    if (!tool || !this.isOrdinary(tool)) throw new Error(`${name} 不是能在这里设置的工具`);
+    this.emit({ type: "level.changed", kind: name, level: level === "ask" ? "suggest" : actionPolicy(tool).cap });
+    return level === "ask" ? `${name} 以后先问你` : `以后 ${name} 直接办，办完告诉你`;
+  }
+
+  private isOrdinary(tool: Tool): boolean {
+    const p = actionPolicy(tool);
+    return (
+      tool.effect === "write" &&
+      tool.hidden !== true &&
+      tool.danger !== true &&
+      rank(p.start) <= rank("suggest") &&
+      rank(p.cap) > rank("suggest")
+    );
   }
 
   /** Read tools a watch may use, e.g. for reflection to suggest one. */
