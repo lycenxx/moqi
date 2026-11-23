@@ -18,6 +18,7 @@ export const ConfigSchema = z.object({
     .optional(),
   persona: z.string().optional(),
   briefingAt: time.nullable().default("08:00"),
+  todoReviewAt: time.nullable().default("21:00"),
   quiet: z.object({ from: time, to: time }).default({ from: "22:30", to: "08:00" }),
   dailyBudget: z.number().int().min(0).max(50).default(3),
   weather: z.object({ latitude: z.number(), longitude: z.number(), place: z.string() }).optional(),
@@ -60,6 +61,7 @@ export type Config = z.infer<typeof ConfigSchema>;
 export const TEMPLATE = {
   model: { baseURL: "http://127.0.0.1:11434/v1", model: "qwen3:4b", noThink: true },
   briefingAt: "08:00",
+  todoReviewAt: "21:00",
   quiet: { from: "22:30", to: "08:00" },
   dailyBudget: 3,
   weather: { latitude: 39.9042, longitude: 116.4074, place: "北京" },

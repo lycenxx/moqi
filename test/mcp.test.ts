@@ -57,12 +57,19 @@ describe("moqi over MCP", () => {
       "moqi_profile",
       "moqi_remember",
       "moqi_tell",
+      "moqi_todo",
       "moqi_ask",
       "moqi_feed",
       "moqi_briefing",
     ]);
     const hints = Object.fromEntries(tools.map((t) => [t.name, t.annotations?.readOnlyHint]));
-    expect(hints).toMatchObject({ moqi_profile: true, moqi_remember: false, moqi_tell: false, moqi_feed: true });
+    expect(hints).toMatchObject({
+      moqi_profile: true,
+      moqi_remember: false,
+      moqi_tell: false,
+      moqi_todo: false,
+      moqi_feed: true,
+    });
   });
 
   it("starts moqi when needed, shares the profile, and learns from other agents", async () => {
@@ -92,6 +99,20 @@ describe("moqi over MCP", () => {
     expect(text(await client.callTool({ name: "moqi_feed", arguments: {} }))).toContain("构建跑完了：全部测试通过");
     const s = (await (await fetch(stateUrl(), { headers: headers() })).json()) as { offers: { kind: string }[] };
     expect(s.offers.map((o) => o.kind)).toContain("agent.cursor-ide"); // the user can mute one agent alone
+  });
+
+  it("puts a task on the user's todo list, marked as the agent's", async () => {
+    const r = await client.callTool({
+      name: "moqi_todo",
+      arguments: { text: "review PR #12", day: "tomorrow", at: "15:00" },
+    });
+    expect(text(r)).toContain("明天 15:00 提醒你「review PR #12」");
+    const s = (await (await fetch(stateUrl(), { headers: headers() })).json()) as {
+      todos: { later: { text: string; by: string }[] };
+    };
+    expect(s.todos.later).toContainEqual(expect.objectContaining({ text: "review PR #12", by: "test-agent" }));
+    const bad = await client.callTool({ name: "moqi_todo", arguments: { text: "x", at: "99:99" } });
+    expect(bad.isError).toBe(true);
   });
 
   it("reports moqi's own errors as tool errors, not protocol failures", async () => {

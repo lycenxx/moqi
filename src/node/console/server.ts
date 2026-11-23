@@ -7,7 +7,8 @@ import type { AddressInfo } from "node:net";
 import { FACT_KINDS, isFaded } from "../../core/memory.js";
 import { openAICompatible } from "../../core/model.js";
 import { describeSchedule } from "../../core/schedule.js";
-import type { FactKind, Urgency, Verdict } from "../../core/types.js";
+import { daysLate, laterTodos, recentlyDone, todayTodos } from "../../core/todo.js";
+import type { FactKind, Todo, Urgency, Verdict } from "../../core/types.js";
 import { parseIcs } from "../../plugins/calendar.js";
 import { NEWS_FEEDS } from "../../plugins/news.js";
 import { connectAgent, disconnectAgent, findAgents, importableServers } from "../agents.js";
@@ -152,6 +153,15 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
     await home.reconfigure(loadConfig(home.dir, env));
   };
 
+  /** The page's todo buttons. What is wrong comes back as a 400 with the same words the model would get. */
+  const todoCall = async (tool: string, args: Record<string, unknown>) => {
+    const problem = home.moqi.checkTool(tool, args);
+    if (problem) throw new HttpError(400, problem);
+    // Deleting on the page is the user's own decision, so it does not ask again.
+    const how = { byUser: true, ...(tool === "todo_remove" && { preApproved: true }) };
+    return { message: await home.serial(() => home.moqi.callTool(tool, args, how)) };
+  };
+
   const routes: Record<string, (body: Record<string, unknown>, url: URL) => Promise<unknown> | unknown> = {
     "GET /api/state": () => {
       const moqi = home.moqi;
@@ -212,6 +222,20 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
         schedule: describeSchedule(w.schedule),
         last: w.last?.headline ?? null,
       }));
+      const todo = (t: Todo) => ({
+        id: t.id,
+        text: t.text,
+        day: t.day,
+        remindAt: t.remindAt ?? null,
+        by: t.by ?? null,
+        late: daysLate(t, now),
+        doneAt: t.doneAt ?? null,
+      });
+      const todos = {
+        today: todayTodos(moqi.state, now).map(todo),
+        later: laterTodos(moqi.state, now).map(todo),
+        done: recentlyDone(moqi.state, now).map(todo),
+      };
       return {
         configured: !!moqi.model,
         busy: chatting > 0,
@@ -225,6 +249,7 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
         offers,
         facts,
         watches,
+        todos,
         thoughts,
       };
     },
@@ -437,6 +462,17 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
         ),
       };
     },
+
+    "POST /api/todo/add": (body) =>
+      todoCall("todo_add", {
+        text: str(body.text, "text"),
+        ...(typeof body.day === "string" && body.day && { day: body.day }),
+        ...(typeof body.at === "string" && body.at && { at: body.at }),
+        ...(typeof body.by === "string" && body.by.trim() && { by: body.by.trim().slice(0, 40) }),
+      }),
+    "POST /api/todo/done": (body) => todoCall("todo_done", { id: str(body.id, "id") }),
+    "POST /api/todo/undone": (body) => todoCall("todo_undone", { id: str(body.id, "id") }),
+    "POST /api/todo/remove": (body) => todoCall("todo_remove", { id: str(body.id, "id") }),
 
     "GET /api/briefing": async () => {
       const b = await home.moqi.briefing();

@@ -97,6 +97,30 @@ export const TOOLS: readonly ToolDef[] = [
     },
   },
   {
+    name: "moqi_todo",
+    title: "Put something on the user's todo list",
+    description:
+      "Add a task the user needs to do to their todo list in moqi, e.g. 'review PR #12' tomorrow. With `at`, moqi reminds them at that time for sure, not only in its feed. Only for things the user would agree to; moqi shows that you added it.",
+    inputSchema: obj(
+      {
+        text: { type: "string", description: "What to do, one line", maxLength: 200 },
+        day: { type: "string", description: "today, tomorrow or YYYY-MM-DD; default today" },
+        at: { type: "string", description: "HH:MM local time to remind the user; leave out for no reminder" },
+      },
+      ["text"],
+    ),
+    readOnly: false,
+    run: async (args, link, client) => {
+      const r = await link.call("POST", "/api/todo/add", {
+        text: args.text,
+        day: args.day,
+        at: args.at,
+        by: client ?? "另一个 agent",
+      });
+      return `已加进用户的待办。${String(r.message)}`;
+    },
+  },
+  {
     name: "moqi_ask",
     title: "Talk to moqi",
     description:
@@ -165,7 +189,7 @@ export async function handleMcp(
         capabilities: { tools: {} },
         serverInfo: { name: "moqi", title: "moqi", version },
         instructions:
-          "moqi is the user's personal agent and keeps a profile of them. Read moqi_profile to personalize your work; when you learn a lasting fact about the user, record it with moqi_remember; to reach the user when they are away, use moqi_tell.",
+          "moqi is the user's personal agent and keeps a profile of them. Read moqi_profile to personalize your work; when you learn a lasting fact about the user, record it with moqi_remember; to reach the user when they are away, use moqi_tell; to put a task on their list, use moqi_todo.",
       });
     }
     case "ping":

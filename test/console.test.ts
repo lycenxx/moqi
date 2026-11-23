@@ -421,6 +421,34 @@ describe("console: what moqi learned", () => {
   });
 });
 
+describe("console: todos", () => {
+  it("adds, ticks off, reopens and deletes todos for the user, and says what is wrong", async () => {
+    const { home, api } = await start({ briefingAt: null });
+    const added = await api("POST", "/api/todo/add", { text: "交报告", day: "tomorrow", at: "15:00" });
+    expect(added.status).toBe(200);
+    expect(added.data.message).toContain("明天 15:00 提醒你「交报告」");
+    expect((await api("POST", "/api/todo/add", { text: "买牛奶" })).status).toBe(200);
+    expect((await api("POST", "/api/todo/add", { text: "  " })).status).toBe(400);
+    const bad = await api("POST", "/api/todo/add", { text: "开会", at: "25:00" });
+    expect(bad).toMatchObject({ status: 400, data: { error: "at 要写成 HH:MM，例如 15:00" } });
+
+    const s = await api("GET", "/api/state");
+    expect(s.data.todos.today).toMatchObject([{ text: "买牛奶", late: 0, by: null, remindAt: null, doneAt: null }]);
+    expect(s.data.todos.later).toMatchObject([{ text: "交报告" }]);
+    const milk = s.data.todos.today[0].id;
+    expect((await api("POST", "/api/todo/done", { id: milk })).data.message).toContain("勾掉了「买牛奶」");
+    expect((await api("GET", "/api/state")).data.todos.done).toMatchObject([{ id: milk }]);
+    expect((await api("POST", "/api/todo/done", { id: milk })).status).toBe(400);
+    expect((await api("POST", "/api/todo/undone", { id: milk })).status).toBe(200);
+    expect((await api("POST", "/api/todo/remove", { id: milk })).data.message).toBe("删掉了「买牛奶」");
+    const after = await api("GET", "/api/state");
+    expect(after.data.todos.today).toEqual([]);
+    expect(after.data.question).toBeNull(); // deleting on the page does not ask again
+    expect(home.moqi.state.todos.get(milk)?.removedAt).toBeDefined();
+    expect((await api("GET", "/api/config")).data.config.todoReviewAt).toBe("21:00");
+  });
+});
+
 describe("console: other agents", () => {
   it("records what another agent learned, and caps what it tells the user below the quiet-hours bar", async () => {
     const { home, api } = await start({ briefingAt: null });

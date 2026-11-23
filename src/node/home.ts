@@ -171,6 +171,7 @@ function build(
     ],
     ...(config.persona && { persona: config.persona }),
     briefingAt: config.briefingAt,
+    todoReviewAt: config.todoReviewAt,
     policy: { quietFrom: config.quiet.from, quietTo: config.quiet.to, dailyBudget: config.dailyBudget },
     ...(options.confirm && { confirm: options.confirm }),
     deliver: async (offer, surface) => {
