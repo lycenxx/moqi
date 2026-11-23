@@ -127,10 +127,11 @@ describe("coding tasks on this computer", () => {
     expect(run.file).toBe("/bin/claude");
     expect(run.args.slice(0, 2)).toEqual(["-p", "做：加一个 NEW.md"]);
     expect(run.args).toEqual(
-      expect.arrayContaining(["--output-format", "json", "--setting-sources", "project", "--strict-mcp-config"]),
+      expect.arrayContaining(["--output-format", "json", "--setting-sources", "", "--strict-mcp-config"]),
     );
     const settings = JSON.parse(run.args[run.args.indexOf("--settings") + 1] as string);
     expect(settings).toEqual({
+      disableAllHooks: true,
       permissions: {
         defaultMode: "acceptEdits",
         allow: ["Bash(pnpm test)", "Bash(pnpm test *)"],

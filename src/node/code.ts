@@ -187,6 +187,7 @@ export function codeRunner(options: CodeRunnerOptions): CodeRunner {
 /** Claude Code's rules for one task: edits in the worktree, the listed commands, a sandbox without the network. */
 export function claudeSettings(project: CodeProject) {
   return {
+    disableAllHooks: true,
     permissions: {
       defaultMode: "acceptEdits",
       allow: project.commands.flatMap((c) => [`Bash(${c})`, `Bash(${c} *)`]),
@@ -215,7 +216,7 @@ export function claudeRun(
       "--output-format",
       "json",
       "--setting-sources",
-      "project", // the user's own settings would bring their broad allows and hooks along
+      "", // none: the user's and the repo's own settings would bring their broad allows and hooks along
       "--strict-mcp-config",
       "--mcp-config",
       JSON.stringify({ mcpServers: {} }),
@@ -348,12 +349,18 @@ async function commit(task: CodeTask, label: string): Promise<{ files: string[];
   return { files, stat };
 }
 
+/** moqi's own git steps run no hooks: in a worktree the agent could have written them, and they would run unsandboxed. */
 function git(args: readonly string[], cwd: string): Promise<string> {
   return new Promise((done, fail) => {
-    execFile("git", [...args], { cwd, maxBuffer: OUTPUT_MAX }, (error, stdout, stderr) => {
-      if (error) fail(new Error(String(stderr || error.message).trim()));
-      else done(String(stdout));
-    });
+    execFile(
+      "git",
+      ["-c", "core.hooksPath=/dev/null", ...args],
+      { cwd, maxBuffer: OUTPUT_MAX },
+      (error, stdout, stderr) => {
+        if (error) fail(new Error(String(stderr || error.message).trim()));
+        else done(String(stdout));
+      },
+    );
   });
 }
 
