@@ -130,8 +130,8 @@ class Connection {
       // Whether a write is harmless is the user's call, not the server's: every MCP write starts out dangerous.
       ...(!readOnly && { danger: true }),
       source: this.name,
-      describe: (args) =>
-        `用 ${this.name} 的「${t.name}」${Object.keys(args).length ? `（${JSON.stringify(args).slice(0, 80)}）` : ""}`,
+      // The arguments go in full under the question, so the question itself stays short.
+      describe: () => `用 ${this.name} 的「${t.name}」`,
       run: async (args) => {
         const result = (await this.request("tools/call", { name: t.name, arguments: args })) as {
           content?: { type: string; text?: string }[];

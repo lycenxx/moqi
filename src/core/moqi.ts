@@ -293,7 +293,8 @@ export class Moqi {
       const what = tool.describe?.(parsed.data) ?? describeAction(tool, parsed.data as Record<string, unknown>);
       const question = guard && !tool.describe ? `要我用「${this.sourceOf(name)}」的 ${name} 吗？` : `要我${what}吗？`;
       const reason = offered ? "offer" : tainted && this.state.toolPolicies.get(name) === "auto" ? "outside" : "danger";
-      const approved = preApproved || (await this.ask(question, guard ? dangerDetails(args, reason) : undefined));
+      const details = tool.danger ? dangerDetails(args, guard ? reason : undefined) : undefined;
+      const approved = preApproved || (await this.ask(question, details));
       if (tool.effect === "write") this.emit({ type: "approval", kind: name, approved });
       if (!approved) return "用户没有同意，这一步没做";
     }
@@ -616,10 +617,10 @@ const WHY = {
   offer: "这是 moqi 提议的动作，确认一下它实际要做的事。",
 } as const;
 
-/** Why a dangerous action is asked, and exactly what it would do. */
-function dangerDetails(args: Record<string, unknown>, reason: keyof typeof WHY): string {
+/** Exactly what a dangerous action would do, and why it is asked when the trust ladder is not the reason. */
+function dangerDetails(args: Record<string, unknown>, reason?: keyof typeof WHY): string {
   const json = JSON.stringify(args, null, 2);
   const shown =
     json.length > DETAILS_MAX ? `${json.slice(0, DETAILS_MAX)}\n…还有 ${json.length - DETAILS_MAX} 字没显示` : json;
-  return `${WHY[reason]}\n\n${shown}`;
+  return reason ? `${WHY[reason]}\n\n${shown}` : shown;
 }
