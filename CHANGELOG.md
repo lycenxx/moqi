@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-23
+
 - License: Apache-2.0 from this version, with a NOTICE file that copies and derived works must keep. Versions up to 0.5.0 stay under MIT.
 
 ## [0.5.0] - 2026-11-23
