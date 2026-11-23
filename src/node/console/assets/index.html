@@ -34,6 +34,7 @@
         <div class="messages" id="messages" aria-live="polite"></div>
         <div class="ask" id="ask" hidden>
           <p class="ask-text" id="ask-text"></p>
+          <pre class="ask-details" id="ask-details" hidden></pre>
           <div class="actions">
             <button type="button" class="btn primary" id="ask-yes">好</button>
             <button type="button" class="btn" id="ask-no">不用</button>
@@ -242,6 +243,9 @@
             <p class="hint first">moqi 能用的 MCP 服务器。服务器标了只读的工具随时可用，会改动东西的工具每次先问你。</p>
             <div class="list" id="mcp-servers"></div>
             <div class="list" id="mcp-import"></div>
+            <h3 class="minor">会改动东西的工具</h3>
+            <p class="hint">外来的写工具默认每次都先问你。放开后直接办，但这一轮读过网页、文件或别的 agent 的消息时，仍会先问。</p>
+            <div class="list" id="danger-tools"></div>
             <details class="more">
               <summary>手动添加</summary>
               <div class="field">

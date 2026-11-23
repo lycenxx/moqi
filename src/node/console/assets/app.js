@@ -240,6 +240,8 @@ function renderAsk() {
   $("ask").hidden = !q;
   if (!q) return;
   $("ask-text").textContent = q.text;
+  $("ask-details").textContent = q.details || "";
+  $("ask-details").hidden = !q.details;
   $("ask").dataset.id = q.id;
   if (view !== "chat" && toldAbout !== q.id) {
     toldAbout = q.id;
@@ -840,6 +842,7 @@ async function loadSettings() {
     showNews(config.news ? config.news.feeds : null);
     await loadAgents();
     await loadInterop();
+    await loadDangerTools();
   } catch (error) {
     toast(error.message);
   }
@@ -901,6 +904,50 @@ function actionButton(text, primary, run) {
     loadInterop();
   });
   return b;
+}
+
+const POLICY_LABEL = { ask: "每次都问", auto: "放开（读过外部内容时仍会问）", normal: "普通" };
+
+async function loadDangerTools() {
+  const list = $("danger-tools");
+  try {
+    const { tools } = await api("GET", "/api/tools");
+    list.replaceChildren();
+    if (tools.length === 0) list.append(h("p", { class: "none", text: "现在没有会改动东西的外来工具。" }));
+    for (const t of tools) {
+      const select = h(
+        "select",
+        { class: "policy", "aria-label": `${t.name} 怎么处理` },
+        Object.entries(POLICY_LABEL).map(([value, text]) => h("option", { value, text })),
+      );
+      select.value = t.policy;
+      select.addEventListener("change", async () => {
+        select.disabled = true;
+        try {
+          toast((await api("POST", "/api/tool-policy", { tool: t.name, policy: select.value })).message);
+        } catch (error) {
+          toast(error.message);
+          select.value = t.policy;
+        }
+        select.disabled = false;
+      });
+      list.append(
+        h(
+          "div",
+          { class: "item" },
+          h(
+            "div",
+            { class: "item-main" },
+            h("p", { class: "item-text", text: t.name }),
+            h("p", { class: "item-meta", text: `来自 ${t.source}` }),
+          ),
+          select,
+        ),
+      );
+    }
+  } catch (error) {
+    list.replaceChildren(h("p", { class: "none", text: error.message }));
+  }
 }
 
 async function loadInterop() {

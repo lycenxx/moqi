@@ -386,6 +386,28 @@ svg {
   font-weight: 500;
 }
 
+.ask-details {
+  max-height: 16em;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+select.policy {
+  flex: none;
+  max-width: 60%;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
 .composer {
   position: sticky;
   bottom: 16px;
