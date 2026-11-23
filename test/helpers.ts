@@ -17,6 +17,12 @@ export function fakeClock(start = "2026-11-20T08:20:00+08:00") {
   return clock;
 }
 
+/** A 32×32 solid red PNG. */
+export const RED_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAJ0lEQVR42u3NsQkAAAjAsP7/tF7hIASyp6lTCQQCgUAgEAgEgi/BAjLD/C5w/SM9AAAAAElFTkSuQmCC",
+  "base64",
+);
+
 export const HOUR = 3_600_000;
 export const DAY = 24 * HOUR;
 
