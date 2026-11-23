@@ -32,6 +32,20 @@ const PRESETS = {
 };
 const IDEA_LABEL = { serve: "帮你做", ask: "了解你", world: "看世界" };
 
+const EXAMPLES = [
+  "把下载文件夹里的 PDF 收进一个新文件夹",
+  "打开 news.ycombinator.com，挑 5 条翻成中文",
+  "明天上午十点提醒我交周报",
+];
+
+function greeting(now = new Date()) {
+  const hour = now.getHours();
+  if (hour >= 5 && hour < 11) return "早上好";
+  if (hour >= 11 && hour < 13) return "中午好";
+  if (hour >= 13 && hour < 18) return "下午好";
+  return "晚上好";
+}
+
 const ICONS = {
   trash: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6",
   x: "M18 6 6 18M6 6l12 12",
@@ -373,9 +387,25 @@ function renderChat() {
     list.append(
       h(
         "div",
-        { class: "empty" },
-        h("strong", { text: "跟 moqi 说说你自己" }),
-        "住在哪、做什么、在忙什么。它会慢慢记住，在合适的时候先开口。",
+        { class: "hello" },
+        h("strong", { class: "hello-title", text: greeting() }),
+        h("p", { text: "跟 moqi 说说你自己，或者让它替你做点事。" }),
+        h(
+          "div",
+          { class: "examples" },
+          EXAMPLES.map((text) =>
+            h("button", {
+              type: "button",
+              class: "example",
+              text,
+              onclick: () => {
+                input.value = text;
+                autosize();
+                input.focus();
+              },
+            }),
+          ),
+        ),
       ),
     );
   }

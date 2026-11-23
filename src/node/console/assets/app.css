@@ -1,19 +1,19 @@
 :root {
-  --bg: #fafafa;
+  --bg: #f8f8f6;
   --surface: #ffffff;
-  --text: #18181b;
-  --muted: #52525b;
-  --faint: #71717a;
-  --border: #e4e4e7;
-  --border-strong: #d4d4d8;
-  --bubble: #f4f4f5;
-  --accent: #0f766e;
-  --accent-hover: #115e59;
-  --accent-soft: #f0fdfa;
+  --text: #1f2328;
+  --muted: #5f6670;
+  --faint: #6b7075;
+  --border: #e6e6e1;
+  --border-strong: #dcdcd6;
+  --bubble: #ecece8;
+  --accent: #2f6f67;
+  --accent-hover: #275c55;
+  --accent-soft: #e8f1ef;
   --on-accent: #ffffff;
-  --danger: #b91c1c;
-  --danger-soft: #fef2f2;
-  --radius: 12px;
+  --danger: #b42318;
+  --danger-soft: #fdf0ee;
+  --radius: 14px;
   --radius-sm: 8px;
   --font:
     -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", Roboto,
@@ -23,20 +23,20 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #09090b;
-    --surface: #18181b;
-    --text: #fafafa;
-    --muted: #a1a1aa;
-    --faint: #8b8b94;
-    --border: #27272a;
-    --border-strong: #3f3f46;
-    --bubble: #27272a;
-    --accent: #2dd4bf;
-    --accent-hover: #5eead4;
-    --accent-soft: #042f2e;
-    --on-accent: #042f2e;
-    --danger: #f87171;
-    --danger-soft: #2a1215;
+    --bg: #121414;
+    --surface: #1a1d1e;
+    --text: #e7e9ea;
+    --muted: #9aa1a6;
+    --faint: #8a9196;
+    --border: #2a2f31;
+    --border-strong: #3a4043;
+    --bubble: #24292b;
+    --accent: #6fb8ad;
+    --accent-hover: #8acbc1;
+    --accent-soft: #1c2b29;
+    --on-accent: #0e1a18;
+    --danger: #f28b82;
+    --danger-soft: #2b1715;
   }
 }
 
@@ -102,7 +102,7 @@ button {
 }
 
 .top-inner {
-  max-width: 680px;
+  max-width: 720px;
   margin: 0 auto;
   padding: 0 24px;
   display: flex;
@@ -185,22 +185,23 @@ button {
 /* Page */
 
 .page {
-  max-width: 680px;
+  max-width: 720px;
   margin: 0 auto;
   padding: 32px 24px 48px;
 }
 
 .title {
   margin: 0 0 4px;
-  font-size: 24px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .lead {
   margin: 0 0 24px;
   color: var(--muted);
   font-size: 15px;
+  line-height: 1.7;
 }
 
 .subtitle {
@@ -319,7 +320,7 @@ svg {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
   padding-bottom: 24px;
 }
 
@@ -442,6 +443,8 @@ select.policy {
 .msg.moqi {
   align-self: stretch;
   max-width: none;
+  font-size: 16px;
+  line-height: 1.75;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -634,7 +637,7 @@ select.policy {
 }
 
 .card {
-  padding: 16px;
+  padding: 16px 18px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
@@ -1473,4 +1476,59 @@ input.short {
 .link-host {
   color: var(--faint);
   font-size: 12px;
+}
+
+.hello {
+  margin: 12vh 0 32px;
+  text-align: left;
+}
+
+.hello-title {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.hello p {
+  margin: 0 0 20px;
+  color: var(--muted);
+}
+
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.example {
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.example:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: the user's own setting wins over every transition */
+    transition: none !important;
+    /* biome-ignore lint/complexity/noImportantStyles: the user's own setting wins over every animation */
+    animation: none !important;
+  }
 }
