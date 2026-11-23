@@ -114,6 +114,7 @@ export interface Todo {
   - `value: 0.7`，`urgency: "today"`，`expiresAt`：当天本地 24:00
   - 没有 `action`，也不带 `userTimed`，走正常关卡
 - 每天最多一条。今天的都做完了就不发。
+- 只在 `todoReviewAt` 之后 2 小时内发。moqi 整晚没运行、半夜才醒来时，当天就不发了。
 
 ### 4.4 简报
 
@@ -127,13 +128,14 @@ export interface Todo {
 
 ## 5. 工具（`tools.ts`）
 
-| 工具          | 参数                                                                                                   | `effect` / 自主级别              |
-| ------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------- |
-| `todo_add`    | `text`；`day?`：`today`、`tomorrow` 或 `YYYY-MM-DD`，默认今天；`at?`：`HH:MM`；`inMinutes?`：1 到 1440 | write，`start`/`cap` 都是 `auto` |
-| `todo_list`   | 无                                                                                                     | read                             |
-| `todo_done`   | `id`                                                                                                   | write，`auto`                    |
-| `todo_update` | `id`，以及要改的 `text?`、`day?`、`at?: string \| null`、`inMinutes?`                                  | write，`auto`                    |
-| `todo_remove` | `id`                                                                                                   | write，默认 `suggest`（先问）    |
+| 工具          | 参数                                                                                                   | `effect` / 自主级别                                     |
+| ------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| `todo_add`    | `text`；`day?`：`today`、`tomorrow` 或 `YYYY-MM-DD`，默认今天；`at?`：`HH:MM`；`inMinutes?`：1 到 1440 | write，`start`/`cap` 都是 `auto`                        |
+| `todo_list`   | 无                                                                                                     | read                                                    |
+| `todo_done`   | `id`                                                                                                   | write，`auto`                                           |
+| `todo_update` | `id`，以及要改的 `text?`、`day?`、`at?: string \| null`、`inMinutes?`                                  | write，`auto`                                           |
+| `todo_remove` | `id`                                                                                                   | write，默认 `suggest`（先问）                           |
+| `todo_undone` | `id`                                                                                                   | write，`auto`，隐藏（只给控制台的取消勾选用，不给模型） |
 
 规则：
 
