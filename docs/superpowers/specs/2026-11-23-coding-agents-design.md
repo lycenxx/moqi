@@ -216,3 +216,12 @@ moqi 直接在后台调用各家的命令行（新文件 `src/node/code.ts`）�
 - 不在项目目录里直接改。
 - 不自动合并；合并只由用户点。
 - 不在任务里开放 MCP 服务器和联网查资料的工具。
+
+## 12. 补充：实现和实测之后（2026-11-23）
+
+- Kiro 用 `--output-format text`：stdout 只有回答文字，日志在 stderr，比解析 stream-json 简单可靠。
+- 真机实测 Kiro（临时仓库，任务让它改 README、跑 `node check.js`、再试 `ls ~` 和写 `/tmp`）：README 的改动只在工作区并提交到任务分支，`node check.js` 跑了，`ls ~` 和写 `/tmp` 都被 agent 文件里的 deny 规则拒绝，项目目录没变。
+- Kiro 的 agent 文件只限制能跑哪些命令，不断开列出的命令的网络。`CodeRunner.offline(agent)`：Claude Code 为真，Kiro 为假；为假时确认框写"没有断网：Kiro 跑你列出的命令时能联网，没列出的命令一律被拒"，交给 agent 的话也不再说"命令连不上网"。
+- Claude Code 当前登录返回 401，没有真机实测；`network: true` 时 `allowedDomains: ["*"]` 的写法未经验证。
+- 隐藏的危险工具（`code_merge`）不出现在设置页的"会改动东西的工具"里，也不能在那里放开：它只在用户点"合并"时运行。
+- 问题以英文字母或数字结尾时，"吗"前加一个空格。

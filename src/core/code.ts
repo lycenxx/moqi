@@ -39,6 +39,8 @@ export interface CodeRunner {
   /** "Kiro", "Claude Code". */
   label(agent: string): string;
   available(agent: string): boolean;
+  /** Whether this agent's sandbox keeps the listed commands off the network when a project says so. */
+  offline(agent: string): boolean;
   /** Makes the worktree and starts the agent in the background. */
   start(input: CodeStart): Promise<CodeTask>;
   /** Ids of the jobs still running. */
@@ -104,14 +106,14 @@ export function codePreferences(state: State, now: number): string[] {
 }
 
 /** What the coding agent is told: the task, the user's ways, and the rules it works under. */
-export function codePrompt(task: string, prefs: readonly string[], project: CodeProject): string {
+export function codePrompt(task: string, prefs: readonly string[], project: CodeProject, offline = true): string {
   const lines = [task.trim(), ""];
   if (prefs.length > 0) lines.push("## 关于用户（来自 moqi）", ...prefs.map((p) => `- ${p}`), "");
   const commands = project.commands.length > 0 ? project.commands.join("、") : "（没有，不能跑命令）";
   lines.push(
     "## 规矩",
     "- 只在当前目录里改文件。",
-    `- 能跑的命令只有：${commands}；其他命令会被拒绝。${project.network ? "" : "命令连不上网。"}`,
+    `- 能跑的命令只有：${commands}；其他命令会被拒绝。${project.network || !offline ? "" : "命令连不上网。"}`,
     "- 不要提交，moqi 会替你提交。",
     "- 做完用几句话说明改了什么、测试结果如何。",
   );
@@ -251,7 +253,13 @@ export function codeTools(k: Kernel, runner: CodeRunner): Tool<any>[] {
         const prefs = codePreferences(k.state, k.now());
         return [
           `能跑的命令：${p.commands.join("、") || "没有"}`,
-          `联网：${p.network ? "可以" : "不能"}`,
+          `联网：${
+            p.network
+              ? "可以"
+              : runner.offline(a.agent ?? p.agent)
+                ? "不能"
+                : `没有断网：${runner.label(a.agent ?? p.agent)} 跑你列出的命令时能联网，没列出的命令一律被拒`
+          }`,
           prefs.length > 0
             ? `一起传过去的偏好和经验：\n${prefs.map((x) => `- ${x}`).join("\n")}`
             : "不传你的偏好：没有和写代码有关的。",
@@ -271,7 +279,7 @@ export function codeTools(k: Kernel, runner: CodeRunner): Tool<any>[] {
         if (!p) return `没有登记 ${a.project} 这个项目`;
         const agent = a.agent ?? p.agent;
         const id = newId("c");
-        const prompt = codePrompt(a.task, codePreferences(k.state, k.now()), p);
+        const prompt = codePrompt(a.task, codePreferences(k.state, k.now()), p, runner.offline(agent));
         const started = await runner.start({ id, project: p, agent, task: a.task, prompt, now: k.now() });
         k.emit({ type: "code.started", task: started });
         return `已经交给 ${runner.label(agent)} 了（任务 ${id}），做完会在动态里告诉你。`;

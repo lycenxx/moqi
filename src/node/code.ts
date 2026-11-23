@@ -70,6 +70,8 @@ export function codeRunner(options: CodeRunnerOptions): CodeRunner {
       }),
     label: (name) => LABEL[agent(name)],
     available: (name) => find(BIN[agent(name)]) !== undefined,
+    // Claude Code's sandbox has a network proxy; the Kiro agent file only limits which commands run.
+    offline: (name) => agent(name) === "claude",
     running: () => [...jobs.keys()],
     stop: (id) => {
       const job = jobs.get(id);

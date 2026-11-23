@@ -20,6 +20,7 @@ function fakeRunner(projects: CodeProject[] = [MOQI], agents = ["kiro", "claude"
     projects: () => projects,
     label: (agent) => (agent === "claude" ? "Claude Code" : "Kiro"),
     available: (agent) => agents.includes(agent),
+    offline: (agent) => agent === "claude",
     start: async (input) => {
       started.push(input);
       live.add(input.id);
@@ -71,12 +72,12 @@ describe("coding tasks", () => {
     expect(reply).toMatch(/^已经交给 Kiro 了（任务 c_.+），做完会在动态里告诉你。$/);
     expect(asked).toEqual(["要我让 Kiro 在 moqi 里做「把依赖升级到最新，跑一遍测试」吗？"]);
     expect(details[0]).toContain("能跑的命令：pnpm test");
-    expect(details[0]).toContain("联网：不能");
+    expect(details[0]).toContain("联网：没有断网：Kiro 跑你列出的命令时能联网，没列出的命令一律被拒");
     expect(details[0]).toContain("- 提交信息用英文写");
     expect(details[0]).toContain("- Go 写得少，多用 TypeScript");
     expect(details[0]).not.toContain("燕麦拿铁");
     expect(f.started[0]?.prompt).toContain("## 关于用户（来自 moqi）\n- 提交信息用英文写");
-    expect(f.started[0]?.prompt).toContain("- 能跑的命令只有：pnpm test；其他命令会被拒绝。命令连不上网。");
+    expect(f.started[0]?.prompt).toContain("- 能跑的命令只有：pnpm test；其他命令会被拒绝。\n");
     expect([...moqi.state.codeTasks.values()]).toMatchObject([
       { status: "running", task: { project: "/work/moqi", agent: "kiro" } },
     ]);
@@ -149,6 +150,9 @@ describe("coding tasks", () => {
     moqi.remember({ kind: "preference", content: "喜欢 Google 的产品" });
     moqi.remember({ kind: "basic", content: "代码都放在 ~/work 下" });
     expect(codePreferences(moqi.state, clock.now())).toEqual(["回答用中文"]);
+    expect(codePrompt("修", [], { path: "/p", agent: "claude", commands: ["pnpm test"], network: false })).toContain(
+      "其他命令会被拒绝。命令连不上网。",
+    );
     const said = codePrompt("修个 bug", [], { path: "/p", agent: "claude", commands: [], network: true });
     expect(said).toContain("- 能跑的命令只有：（没有，不能跑命令）；其他命令会被拒绝。\n");
     expect(said).not.toContain("## 关于用户");
