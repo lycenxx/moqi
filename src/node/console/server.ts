@@ -203,7 +203,7 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
             answer: o.answer === "text",
             links: o.links ?? [],
             surface: record.surface,
-            ...(o.kind === "code.done" && { taskId: String(o.action?.args.id ?? "") }),
+            ...(o.kind === "code.done" && { taskId: o.about ?? "" }),
           },
         ];
       });

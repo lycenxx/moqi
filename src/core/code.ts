@@ -141,7 +141,9 @@ export function codeOffer(task: CodeTask, result: CodeResult, label: string, now
     value: 0.8,
     urgency: "today",
     expiresAt: now + OFFER_DAYS * 86_400_000,
-    action: { tool: "code_merge", args: { id: task.id } },
+    about: task.id,
+    // Nothing to merge: the user can only discard it.
+    ...(result.files.length > 0 && { action: { tool: "code_merge", args: { id: task.id } } }),
   };
 }
 

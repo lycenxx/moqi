@@ -54,6 +54,8 @@ export interface Offer {
   readonly expiresAt?: number;
   /** What accepting it does. Absent: it is information only. */
   readonly action?: { readonly tool: string; readonly args: Record<string, unknown> };
+  /** What it reports on, for a host that shows its kind specially, e.g. the coding task of a "code.done". */
+  readonly about?: string;
   /** "text": a question; the user answers it in words, and the answer is learned from. */
   readonly answer?: "text";
   /** Where to read more, e.g. the articles a world idea is about. Only http(s) URLs. */

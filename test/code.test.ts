@@ -126,6 +126,8 @@ describe("coding tasks", () => {
     const id = f.started[0]?.id as string;
     moqi.codeFinished(id, { ok: true, summary: "没找到能改的地方。", files: [], stat: "" });
     expect(delivered.at(-1)?.offer.title).toBe("Kiro 做完了，没有改动：看看能不能更快");
+    expect(delivered.at(-1)?.offer.action).toBeUndefined();
+    expect(delivered.at(-1)?.offer.about).toBe(id);
     expect(await moqi.callTool("code_merge", { id }, { byUser: true })).toBe("参数不对：这个任务没有改动，不用合并");
     expect(await moqi.callTool("code_discard", { id }, { byUser: true, preApproved: true })).toMatch(/丢弃了/);
     expect(f.discarded).toEqual([id]);
