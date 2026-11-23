@@ -109,6 +109,9 @@ describe("console", () => {
     expect(html).toContain('id="r-at"');
     expect(html).toContain('id="ask-details"');
     expect(html).toContain('id="danger-tools"');
+    expect(html).toContain('id="p-browser"');
+    expect(html).toContain('id="f-folders"');
+    expect(html).toContain('id="mac-shortcuts"');
     expect((await fetch(`http://127.0.0.1:${ui.port}/app.js`)).headers.get("content-type")).toContain("javascript");
 
     expect((await api("GET", "/api/state", undefined, "wrong")).status).toBe(401);

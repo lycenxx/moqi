@@ -787,6 +787,44 @@ function toggle(id, bodyId) {
 $("w-on").addEventListener("change", () => toggle("w-on", "w-body"));
 $("c-on").addEventListener("change", () => toggle("c-on", "c-body"));
 $("n-on").addEventListener("change", () => toggle("n-on", "n-body"));
+$("f-on").addEventListener("change", () => {
+  toggle("f-on", "f-body");
+  $("f-folders").disabled = !$("f-on").checked;
+});
+$("mac-on").addEventListener("change", () => toggle("mac-on", "mac-body"));
+$("p-browser").addEventListener("click", async () => {
+  const on = !$("p-browser").dataset.on;
+  $("p-browser").disabled = true;
+  try {
+    await api("POST", "/api/preset", { name: "browser", on });
+    toast(on ? "加上了浏览器，正在启动" : "移除了浏览器");
+  } catch (error) {
+    toast(error.message);
+  }
+  $("p-browser").disabled = false;
+  await loadInterop();
+});
+
+async function loadShortcuts(chosen) {
+  const box = $("mac-shortcuts");
+  box.replaceChildren();
+  let data;
+  try {
+    data = await api("GET", "/api/shortcuts");
+  } catch (error) {
+    box.append(h("p", { class: "hint", text: error.message }));
+    return;
+  }
+  if (!data.available) return box.append(h("p", { class: "hint", text: "没找到快捷指令，需要 macOS 12 以上。" }));
+  if (data.shortcuts.length === 0)
+    return box.append(h("p", { class: "hint", text: "你还没有快捷指令。在「快捷指令」App 里做好后，这里就能勾选。" }));
+  const picked = new Set(chosen);
+  for (const name of data.shortcuts) {
+    const check = h("input", { type: "checkbox", value: name });
+    check.checked = picked.has(name);
+    box.append(h("label", { class: "check" }, check, name));
+  }
+}
 $("b-on").addEventListener("change", () => {
   $("b-at").disabled = !$("b-on").checked;
 });
@@ -802,7 +840,7 @@ function showWeather() {
 
 async function loadSettings() {
   try {
-    const { config, hasKey: saved, env, newsPresets: feeds } = await api("GET", "/api/config");
+    const { config, hasKey: saved, env, newsPresets: feeds, platform } = await api("GET", "/api/config");
     newsPresets = feeds;
     settingsLoaded = true;
     hasKey = saved;
@@ -841,6 +879,14 @@ async function loadSettings() {
     $("q-to").value = config.quiet.to;
     $("budget").value = String(config.dailyBudget);
     showNews(config.news ? config.news.feeds : null);
+    $("f-on").checked = !!config.files;
+    $("f-folders").value = (config.files ? config.files.folders : ["~/Downloads", "~/Desktop"]).join("\n");
+    toggle("f-on", "f-body");
+    $("f-folders").disabled = !config.files;
+    $("m-field").hidden = platform !== "darwin";
+    $("mac-on").checked = !!config.mac;
+    if (platform === "darwin") await loadShortcuts(config.mac ? config.mac.shortcuts : []);
+    toggle("mac-on", "mac-body");
     await loadAgents();
     await loadInterop();
     await loadDangerTools();
@@ -959,6 +1005,14 @@ async function loadInterop() {
     $("mcp-servers").replaceChildren(h("p", { class: "hint", text: error.message }));
     return;
   }
+  const browser = data.servers.find((s) => s.name === "browser");
+  $("p-browser-status").textContent = !browser
+    ? "未加上。第一次启动要联网下载 Playwright，稍等片刻。"
+    : browser.state === "ready"
+      ? `已就绪 · ${browser.tools} 个工具`
+      : `${STATE_WORDS[browser.state] || browser.state}${browser.error ? `：${browser.error}` : ""}`;
+  $("p-browser").textContent = browser ? "移除" : "加上";
+  $("p-browser").dataset.on = browser ? "1" : "";
   const servers = $("mcp-servers");
   servers.replaceChildren();
   if (data.servers.length === 0)
@@ -1205,6 +1259,11 @@ $("settings").addEventListener("submit", async (e) => {
     return setResult(out, "有一个 RSS 地址不对，要以 https:// 开头", "bad");
   }
   if ($("n-on").checked && feeds.length === 0) return setResult(out, "新闻开着，但一个来源都没选", "bad");
+  const folders = $("f-folders")
+    .value.split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if ($("f-on").checked && folders.length === 0) return setResult(out, "文件开着，但一个文件夹都没填", "bad");
   const config = {
     model: m.baseURL ? m : null,
     persona: $("persona").value.trim() || undefined,
@@ -1215,6 +1274,10 @@ $("settings").addEventListener("submit", async (e) => {
     weather: $("w-on").checked ? weather : undefined,
     calendar: $("c-on").checked ? { ics: $("c-path").value.trim() } : undefined,
     news: { feeds }, // an empty list turns news off; leaving it out would mean the default feeds
+    files: $("f-on").checked ? { folders } : undefined,
+    mac: $("mac-on").checked
+      ? { shortcuts: [...$("mac-shortcuts").querySelectorAll("input:checked")].map((c) => c.value) }
+      : undefined,
   };
   $("save").disabled = true;
   setResult(out, "正在保存…");

@@ -231,6 +231,39 @@
           </fieldset>
 
           <fieldset class="group">
+            <legend>能力包</legend>
+            <p class="hint first">让 moqi 能在电脑和网页上动手。会改动东西的动作照样先问你，可以在下面「会改动东西的工具」里逐个放开。</p>
+            <div class="item">
+              <div class="item-main">
+                <p class="item-text">浏览器（Playwright）</p>
+                <p class="item-meta" id="p-browser-status">未加上</p>
+              </div>
+              <button type="button" class="btn" id="p-browser">加上</button>
+            </div>
+            <p class="hint">用一个单独的 Chrome 配置，看不到你平时浏览器里的登录和记录。每个网站在一轮对话里问你一次；输入文字、上传、执行脚本每次都问。</p>
+            <div class="field">
+              <div class="legend-row">
+                <label for="f-folders">文件</label>
+                <label class="switch"><input type="checkbox" id="f-on" /><span class="sr-only">开启文件</span></label>
+              </div>
+              <div id="f-body">
+                <textarea id="f-folders" rows="2" spellcheck="false" placeholder="~/Downloads"></textarea>
+                <p class="hint">只在这些文件夹里列出、读取、新建、移动、改名、移到废纸篓，不改已有文件的内容。一行一个。</p>
+              </div>
+            </div>
+            <div class="field" id="m-field" hidden>
+              <div class="legend-row">
+                <span class="label">macOS 操作</span>
+                <label class="switch"><input type="checkbox" id="mac-on" /><span class="sr-only">开启 macOS 操作</span></label>
+              </div>
+              <div id="mac-body">
+                <p class="hint first">打开 App、在访达里显示文件、截图到桌面、调音量、读写剪贴板。截图第一次需要在「系统设置 → 隐私与安全性 → 屏幕录制」里允许。下面勾选的快捷指令，moqi 也能运行，每次先问你。</p>
+                <div class="feeds" id="mac-shortcuts"></div>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="group">
             <legend>其他 agent</legend>
             <p class="hint first">
               moqi 在这台电脑上找到的 agent。接入后，它们能通过 MCP 读到 moqi 对你的了解、把了解到的告诉 moqi，也能通过 moqi 提醒你。点了才会改，改之前先备份。
