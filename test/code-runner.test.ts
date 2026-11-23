@@ -2,9 +2,24 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { CodeResult } from "../src/core/code.js";
 import { type AgentRun, type CodeSettings, codeRunner, findBin, type Launch } from "../src/node/code.js";
+
+// Like CI: no git identity on the machine, only the one a test gives its own commits.
+const saved = { global: process.env.GIT_CONFIG_GLOBAL, nosystem: process.env.GIT_CONFIG_NOSYSTEM };
+beforeAll(() => {
+  process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+  process.env.GIT_CONFIG_NOSYSTEM = "1";
+});
+afterAll(() => {
+  for (const [key, value] of [
+    ["GIT_CONFIG_GLOBAL", saved.global],
+    ["GIT_CONFIG_NOSYSTEM", saved.nosystem],
+  ] as const)
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+});
 
 const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, encoding: "utf8" });
@@ -114,6 +129,8 @@ describe("coding tasks on this computer", () => {
 
     expect(s.runner.currentBranch(s.project)).toBe("main");
     expect(await s.runner.merge(task)).toBe(`已合并到 main：${task.branch}`);
+    expect(git(s.project, "log", "-1", "--format=%an %P").split(" ")).toHaveLength(3);
+    expect(git(s.project, "log", "-1", "--format=%an")).toBe("moqi\n");
     expect(readFileSync(join(s.project, "NEW.md"), "utf8")).toBe("hello\n");
     expect(existsSync(task.dir)).toBe(false);
     expect(git(s.project, "branch", "--list", "moqi/*").trim()).toBe("");

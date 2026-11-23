@@ -98,10 +98,15 @@ export function codeRunner(options: CodeRunnerOptions): CodeRunner {
         encoding: "utf8",
       }).trim();
       try {
-        await git(["merge", "--no-ff", "--no-edit", task.branch], task.project);
-      } catch {
+        await git([...(await identity(task.project)), "merge", "--no-ff", "--no-edit", task.branch], task.project);
+      } catch (error) {
+        const conflicted = (await git(["diff", "--name-only", "--diff-filter=U"], task.project).catch(() => "")).trim();
         await git(["merge", "--abort"], task.project).catch(() => "");
-        throw new Error(`有冲突，没有合并；分支 ${task.branch} 还在，可以自己合并`);
+        throw new Error(
+          conflicted
+            ? `有冲突，没有合并；分支 ${task.branch} 还在，可以自己合并`
+            : `没有合并（${(error as Error).message.split("\n")[0]}）；分支 ${task.branch} 还在`,
+        );
       }
       await git(["worktree", "remove", "--force", task.dir], task.project).catch(() => "");
       await git(["branch", "-d", task.branch], task.project).catch(() => "");
@@ -339,14 +344,19 @@ export const launchAgent: Launch = (run, signal) =>
 async function commit(task: CodeTask, label: string): Promise<{ files: string[]; stat: string }> {
   await git(["add", "-A"], task.dir);
   if ((await git(["diff", "--cached", "--name-only"], task.dir)).trim()) {
-    const known = (await git(["config", "user.email"], task.dir).catch(() => "")).trim() !== "";
-    const who = known ? [] : ["-c", "user.name=moqi", "-c", "user.email=moqi@localhost"];
+    const who = await identity(task.dir);
     const subject = `moqi: ${(task.task.split("\n")[0] ?? "").slice(0, 72)}`;
     await git([...who, "commit", "-q", "-m", subject, "-m", `由 ${label} 完成，moqi 代为提交`], task.dir);
   }
   const files = (await git(["diff", "--name-only", `${task.base}..HEAD`], task.dir)).split("\n").filter(Boolean);
   const stat = (await git(["diff", "--stat", `${task.base}..HEAD`], task.dir)).trimEnd();
   return { files, stat };
+}
+
+/** Who commits when the repository has no git identity of its own: moqi. */
+async function identity(cwd: string): Promise<string[]> {
+  const known = (await git(["config", "user.email"], cwd).catch(() => "")).trim() !== "";
+  return known ? [] : ["-c", "user.name=moqi", "-c", "user.email=moqi@localhost"];
 }
 
 /** moqi's own git steps run no hooks: in a worktree the agent could have written them, and they would run unsandboxed. */

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Fix: merging a coding task failed in a repository without a git identity, and said there was a conflict. The merge commit now uses moqi as its author there, like moqi's commit in the worktree, and a merge that fails for another reason says why.
+
 ## [0.6.0] - 2026-11-23
 
 - Coding agents: in chat, hand a coding task to Kiro CLI or Claude Code for a project you set up in Settings. Each task gets a branch of its own in a worktree under `~/.moqi/code`, so your project directory stays untouched until you merge. The agent may edit only that worktree and run only the commands you list for the project; Claude Code runs them in its sandbox, offline unless the project allows the network, while Kiro refuses every other command but does not cut the network for listed ones. moqi passes on your coding preferences and lessons, listed one by one in the confirmation, commits the result, and tells you in the feed: look at the changes, merge (asked again, refused over uncommitted work or a conflict), or discard. Tasks can be stopped, time out after 30 minutes, and a restart marks them interrupted. moqi runs no git hooks in its own git steps, so a hook the agent wrote never runs outside its sandbox (your project's hooks do not run on the merge either), and Claude Code gets none of your or the repo's settings, only the login in `~/.claude/settings.json`. Tried on this computer with Kiro: edits stayed in the worktree, `ls ~` and writing to /tmp were refused. Claude Code is not tried for real yet. Questions that end in an English word get a space before 吗.
