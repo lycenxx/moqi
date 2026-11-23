@@ -55,6 +55,23 @@ export const ConfigSchema = z.object({
   files: z.object({ folders: z.array(z.string().min(1)).min(1).max(20) }).optional(),
   /** Actions on this Mac, and the Shortcuts moqi may run. Absent: off. */
   mac: z.object({ shortcuts: z.array(z.string().min(1).max(200)).max(50).default([]) }).optional(),
+  /** Coding agents and the projects they may work on. Absent: off. */
+  code: z
+    .object({
+      timeoutMinutes: z.number().int().min(1).max(240).default(30),
+      projects: z
+        .array(
+          z.object({
+            path: z.string().min(1),
+            agent: z.enum(["kiro", "claude"]),
+            commands: z.array(z.string().trim().min(1).max(200)).max(20).default([]),
+            network: z.boolean().default(false),
+          }),
+        )
+        .max(20)
+        .default([]),
+    })
+    .optional(),
   news: z
     .object({ feeds: z.array(z.object({ name: z.string().min(1).max(40), url: z.string().url() })).max(20) })
     // On unless turned off with an empty list, so an existing config gets news after an upgrade too.

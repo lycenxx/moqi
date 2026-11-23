@@ -1,13 +1,15 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineTool, type Plugin } from "../src/core/plugin.js";
+import type { Launch } from "../src/node/code.js";
 import { readConfigFile } from "../src/node/config.js";
 import { type Console, type ConsoleOptions, confirmQueue, startConsole } from "../src/node/console/server.js";
-import { type Home, openHome } from "../src/node/home.js";
+import { type Home, type HomeOptions, openHome } from "../src/node/home.js";
 
 type Reply = { content?: string; tool_calls?: { id: string; function: { name: string; arguments: string } }[] };
 
@@ -43,6 +45,7 @@ async function start(
   model: Parameters<typeof fakeNet>[0] = () => ({ content: "好" }),
   extra: Plugin[] = [],
   consoleExtra: Partial<ConsoleOptions> = {},
+  homeExtra: Partial<HomeOptions> = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "moqi-console-"));
   writeFileSync(join(dir, "config.json"), JSON.stringify(config));
@@ -55,6 +58,7 @@ async function start(
     fetch: net.fetch,
     confirm: (q, d) => asker.ask(q, d),
     extraPlugins: extra,
+    ...homeExtra,
     agents: {
       home: osHome,
       command: { command: "/usr/bin/node", args: ["/opt/moqi/cli.js", "mcp"] },
@@ -506,6 +510,75 @@ describe("console: abilities", () => {
     const tools = (await api("GET", "/api/tools")).data.tools as { name: string }[];
     expect(tools.map((t) => t.name)).toContain("files_trash");
     expect((await api("GET", "/api/shortcuts")).data).toEqual({ available: true, shortcuts: ["早上模式"] });
+  });
+});
+
+describe("console: coding agents", () => {
+  it("checks projects are git roots, shows a task, its changes, and discards it from the page", async () => {
+    const project = realpathSync(mkdtempSync(join(tmpdir(), "moqi-proj-")));
+    const g = (...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd: project });
+    g("init", "-q", "-b", "main");
+    writeFileSync(join(project, "README.md"), "# p\n");
+    g("add", ".");
+    g("commit", "-qm", "init");
+    const launch: Launch = async (run) => {
+      writeFileSync(join(run.cwd, "NEW.md"), "hello\n");
+      return { code: 0, stdout: "加了 NEW.md\n", stderr: "" };
+    };
+    const config = {
+      briefingAt: null,
+      code: { projects: [{ path: project, agent: "kiro", commands: ["pnpm test"] }] },
+    };
+    const { home, api } = await start(
+      config,
+      undefined,
+      [],
+      {},
+      { codeFind: (bin) => `/bin/${bin}`, codeLaunch: launch },
+    );
+    expect((await api("GET", "/api/code/agents")).data).toEqual({ kiro: true, claude: true });
+
+    const asking = home.moqi.callTool(
+      "code_delegate",
+      { project: basename(project), task: "加一个 NEW.md" },
+      { byUser: true },
+    );
+    let question: { id: string; details?: string } | null = null;
+    for (let i = 0; i < 50 && !question; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+      question = (await api("GET", "/api/state")).data.question;
+    }
+    expect(question?.details).toContain("能跑的命令：pnpm test");
+    await api("POST", "/api/confirm", { id: question?.id, yes: true });
+    expect(await asking).toMatch(/^已经交给 Kiro 了/);
+    let task: { id: string; status: string; files: number } | undefined;
+    for (let i = 0; i < 100 && task?.status !== "done"; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+      task = (await api("GET", "/api/state")).data.code[0];
+    }
+    expect(task).toMatchObject({ status: "done", files: 1, agent: "Kiro", project: basename(project) });
+    const offer = (await api("GET", "/api/state")).data.offers.find((o: { kind: string }) => o.kind === "code.done");
+    expect(offer?.taskId).toBe(task?.id);
+    expect((await api("GET", `/api/code/diff?id=${task?.id}`)).data.diff).toContain("+hello");
+    expect((await api("POST", "/api/code/stop", { id: task?.id })).status).toBe(409);
+    expect((await api("POST", "/api/code/discard", { id: task?.id })).data.message).toMatch(/^丢弃了 moqi\//);
+    const after = (await api("GET", "/api/state")).data;
+    expect(after.code[0].status).toBe("discarded");
+    expect(after.offers.filter((o: { kind: string }) => o.kind === "code.done")).toEqual([]);
+
+    const notRepo = mkdtempSync(join(tmpdir(), "moqi-plain-"));
+    const page = {
+      model: null,
+      briefingAt: null,
+      quiet: { from: "22:30", to: "08:00" },
+      dailyBudget: 3,
+      news: { feeds: [] },
+    };
+    const bad = await api("POST", "/api/config", {
+      config: { ...page, code: { projects: [{ path: notRepo, agent: "kiro", commands: [] }] } },
+    });
+    expect(bad).toMatchObject({ status: 400, data: { error: `「${notRepo}」不是 git 仓库的根目录` } });
   });
 });
 

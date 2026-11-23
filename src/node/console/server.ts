@@ -1,10 +1,12 @@
 // The console: a page on 127.0.0.1 for chatting, answering offers, seeing memories and changing settings.
 // It is served by the running home, so the page, the terminal and (later) the phone all go through one process.
+import { execFileSync } from "node:child_process";
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
+import { lastSegment } from "../../core/code.js";
 import { FACT_KINDS, isFaded } from "../../core/memory.js";
 import { openAICompatible } from "../../core/model.js";
 import { describeSchedule } from "../../core/schedule.js";
@@ -201,6 +203,7 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
             answer: o.answer === "text",
             links: o.links ?? [],
             surface: record.surface,
+            ...(o.kind === "code.done" && { taskId: String(o.action?.args.id ?? "") }),
           },
         ];
       });
@@ -268,6 +271,19 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
         facts,
         watches,
         todos,
+        code: [...moqi.state.codeTasks.values()]
+          .filter((t) => t.status === "running" || now - (t.finishedAt ?? t.task.startedAt) < 30 * 86_400_000)
+          .reverse()
+          .map((t) => ({
+            id: t.task.id,
+            agent: home.code.label(t.task.agent),
+            project: lastSegment(t.task.project),
+            task: t.task.task,
+            status: t.status,
+            startedAt: t.task.startedAt,
+            branch: t.task.branch,
+            files: t.files?.length ?? 0,
+          })),
         thoughts,
       };
     },
@@ -489,13 +505,41 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       };
     },
 
+    "GET /api/code/agents": () => ({ kiro: home.code.available("kiro"), claude: home.code.available("claude") }),
+
+    "GET /api/code/diff": async (_body, url) => {
+      const t = home.moqi.state.codeTasks.get(url.searchParams.get("id") ?? "");
+      if (!t) throw new HttpError(404, "没有这个任务");
+      return { diff: await home.code.diff(t.task) };
+    },
+
+    "POST /api/code/stop": (body) => {
+      if (!home.code.stop(str(body.id, "id"))) throw new HttpError(409, "这个任务已经不在跑了");
+      return { ok: true };
+    },
+
+    "POST /api/code/discard": async (body) => {
+      const id = str(body.id, "id");
+      const problem = home.moqi.checkTool("code_discard", { id });
+      if (problem) throw new HttpError(400, problem);
+      // Pressing "discard" twice on the page is the user's own decision, so it does not ask again.
+      const message = await home.serial(async () => {
+        const said = await home.moqi.callTool("code_discard", { id }, { byUser: true, preApproved: true });
+        for (const o of home.moqi.state.openOffers(home.moqi.clock.now()))
+          if (o.kind === "code.done" && o.action?.args.id === id) await home.moqi.feedback(o.id, "dismissed");
+        return said;
+      });
+      return { message };
+    },
+
     "GET /api/tools": () => ({ tools: home.moqi.dangerousTools() }),
 
     "POST /api/tool-policy": async (body) => {
       const name = str(body.tool, "tool");
       const policy = str(body.policy, "policy");
       if (!["ask", "auto", "normal"].includes(policy)) throw new HttpError(400, "policy 只能是 ask、auto 或 normal");
-      if (!home.moqi.tool(name)?.danger) throw new HttpError(400, `${name} 不是会改动东西的外来工具`);
+      const tool = home.moqi.tool(name);
+      if (!tool?.danger || tool.hidden) throw new HttpError(400, `${name} 不是能在这里设置的工具`);
       return {
         message: await home.serial(async () => home.moqi.setToolPolicy(name, policy as "ask" | "auto" | "normal")),
       };
@@ -566,6 +610,17 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
           dir = false;
         }
         if (!dir) throw new HttpError(400, `文件夹「${folder}」不存在，或者不是文件夹`);
+      }
+      for (const p of parsed.data.code?.projects ?? []) {
+        let same = false;
+        try {
+          const real = realpathSync(expandHome(p.path));
+          const top = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: real, encoding: "utf8" }).trim();
+          same = realpathSync(top) === real;
+        } catch {
+          same = false;
+        }
+        if (!same) throw new HttpError(400, `「${p.path}」不是 git 仓库的根目录`);
       }
       saveConfig(home.dir, parsed.data);
       await home.reconfigure(loadConfig(home.dir, env));

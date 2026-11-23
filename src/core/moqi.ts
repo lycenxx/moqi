@@ -157,7 +157,7 @@ export class Moqi {
   /** Dangerous tools and what the user decided about each, for the settings. */
   dangerousTools(): { name: string; source: string; description: string; policy: ToolPolicy }[] {
     return [...this.tools.values()]
-      .filter((t) => t.danger)
+      .filter((t) => t.danger && !t.hidden) // a hidden one only ever runs from the user's own tap
       .map((t) => ({
         name: t.name,
         source: this.sourceOf(t.name),

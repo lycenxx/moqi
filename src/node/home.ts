@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { CodeRunner } from "../core/code.js";
 import { openAICompatible } from "../core/model.js";
 import { Moqi, type MoqiOptions } from "../core/moqi.js";
 import type { Plugin } from "../core/plugin.js";
@@ -12,6 +13,7 @@ import { calendarPlugin } from "../plugins/calendar.js";
 import { newsPlugin } from "../plugins/news.js";
 import { weatherPlugin } from "../plugins/weather.js";
 import { type AgentsPluginOptions, agentsPlugin } from "./agents.js";
+import { codeRunner, type Launch } from "./code.js";
 import { type Config, expandHome, loadConfig, readConfigFile, saveConfig } from "./config.js";
 import { acquireLock, fileEventStore } from "./file-store.js";
 import { filesPlugin } from "./files.js";
@@ -34,6 +36,9 @@ export interface HomeOptions {
   readonly agents?: AgentsPluginOptions | false;
   /** Starting the MCP servers in the config. Default true. */
   readonly mcp?: boolean;
+  /** Tests: stand-ins for running and finding coding agents. */
+  readonly codeLaunch?: Launch;
+  readonly codeFind?: (bin: string) => string | undefined;
 }
 
 const VERSION = (
@@ -66,6 +71,8 @@ export interface Home {
   serial<T>(job: () => Promise<T>): Promise<T>;
   /** Rebuilds moqi from a new config on the same log, after the jobs before it and background learning settle. */
   reconfigure(config: Config): Promise<void>;
+  /** Runs coding tasks; lives as long as the home, so a rebuild of moqi does not lose them. */
+  readonly code: CodeRunner;
   close(): void;
 }
 
@@ -111,8 +118,17 @@ export function openHome(options: HomeOptions): Home {
     let reconfigureLater = async (_next: Config) => {};
     let config = options.config ?? loadConfig(options.home);
     const hub = new McpHub(VERSION);
+    // A finished task is reported to whichever moqi is current by then, after the jobs before it.
+    const code = codeRunner({
+      home: options.home,
+      settings: () => config.code,
+      onFinished: (id, result) => void serial(async () => moqi.codeFinished(id, result)),
+      ...(options.codeFind && { find: options.codeFind }),
+      ...(options.codeLaunch && { launch: options.codeLaunch }),
+    });
     if (options.mcp !== false) hub.reconcile(config.mcp?.servers);
-    let moqi = build(config, store, options, notify, agents, hub);
+    let moqi = build(config, store, options, notify, agents, hub, code);
+    moqi.recoverCode(); // tasks a previous run left running were cut short
     let chain: Promise<unknown> = Promise.resolve();
     const serial = <T>(job: () => Promise<T>): Promise<T> => {
       const run = chain.then(job, job);
@@ -123,14 +139,14 @@ export function openHome(options: HomeOptions): Home {
     hub.watch(() => {
       void serial(async () => {
         await moqi.idle();
-        moqi = build(config, store, options, notify, agents, hub);
+        moqi = build(config, store, options, notify, agents, hub, code);
       });
     });
     const reconfigure = (next: Config) =>
       serial(async () => {
         await moqi.idle();
         if (options.mcp !== false) hub.reconcile(next.mcp?.servers);
-        moqi = build(next, store, options, notify, agents, hub);
+        moqi = build(next, store, options, notify, agents, hub, code);
         config = next;
       });
     reconfigureLater = (next) => reconfigure(next);
@@ -147,6 +163,7 @@ export function openHome(options: HomeOptions): Home {
       serial,
       reconfigure,
       mcpStatus: () => hub.status(),
+      code,
       close: () => {
         hub.stop();
         release();
@@ -165,6 +182,7 @@ function build(
   notify: Notifier,
   agents: AgentsPluginOptions | undefined,
   hub: McpHub,
+  code: CodeRunner,
 ): Moqi {
   return new Moqi({
     store,
@@ -179,6 +197,7 @@ function build(
     ],
     ...(config.persona && { persona: config.persona }),
     briefingAt: config.briefingAt,
+    code,
     todoReviewAt: config.todoReviewAt,
     policy: { quietFrom: config.quiet.from, quietTo: config.quiet.to, dailyBudget: config.dailyBudget },
     ...(options.confirm && { confirm: options.confirm }),
