@@ -96,6 +96,9 @@ export type Surface = "notify" | "feed";
 
 export type Level = "inform" | "suggest" | "auto-undo" | "auto";
 
+/** What the user decided about one dangerous tool: always ask, unlocked, or not dangerous after all. */
+export type ToolPolicy = "ask" | "auto" | "normal";
+
 // ---------------------------------------------------------------------------
 // Watches (托管事务)
 // ---------------------------------------------------------------------------
@@ -158,6 +161,7 @@ export type EventBody =
   | { type: "tool.called"; tool: string; args: Record<string, unknown>; byUser: boolean; ok: boolean }
   | { type: "approval"; kind: string; approved: boolean }
   | { type: "level.changed"; kind: string; level: Level }
+  | { type: "tool.policy"; tool: string; policy: ToolPolicy }
   | { type: "watch.created"; watch: Watch }
   | { type: "watch.ran"; watchId: string; value: string; headline: string; changed: boolean; nextAt: number }
   | { type: "watch.cancelled"; watchId: string }

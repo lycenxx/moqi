@@ -24,6 +24,12 @@ export interface Tool<A = unknown> {
   readonly cap?: ActionPolicy["cap"];
   /** Not offered to the model; only offers and moqi itself call it. */
   readonly hidden?: boolean;
+  /** Hard to undo: runs commands, changes or deletes files, submits forms, pays, sends the user's words elsewhere. Asked every time unless the user unlocks it. */
+  readonly danger?: boolean;
+  /** Its result is moqi's own state (memories, todos, watches), never outside content. */
+  readonly local?: true;
+  /** Who provides it, for the confirmation and the settings: an MCP server or an A2A agent. */
+  readonly source?: string;
   /** Says in plain words what a call will do, for the confirmation question, e.g. "每天 22:00 提醒你「早点睡」". */
   describe?(args: A): string;
   /** Rejects a call before anyone is asked to approve it. Returns the problem, or undefined if the call is fine. */
@@ -45,8 +51,9 @@ export function toolSpec(tool: Tool): ToolSpec {
 }
 
 export function actionPolicy(tool: Tool): ActionPolicy {
-  if (tool.effect === "read") return { start: tool.start ?? "auto", cap: tool.cap ?? "auto" };
-  return { start: tool.start ?? "suggest", cap: tool.cap ?? "auto-undo" };
+  const danger = tool.danger === true;
+  if (tool.effect === "read") return { start: tool.start ?? "auto", cap: tool.cap ?? "auto", danger };
+  return { start: tool.start ?? "suggest", cap: tool.cap ?? "auto-undo", danger };
 }
 
 export function resultText(result: ToolResult): string {

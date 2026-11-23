@@ -10,6 +10,7 @@ import type {
   Offer,
   Surface,
   Todo,
+  ToolPolicy,
   Verdict,
   Watch,
 } from "./types.js";
@@ -82,6 +83,7 @@ export class State {
   readonly offers = new Map<string, OfferRecord>();
   readonly kinds = new Map<string, KindStats>();
   readonly trust = new Map<string, Trust>();
+  readonly toolPolicies = new Map<string, ToolPolicy>();
   readonly watches = new Map<string, Watch>();
   readonly todos = new Map<string, Todo>();
   readonly notifiedPerDay = new Map<string, number>();
@@ -230,6 +232,9 @@ export class State {
       }
       case "level.changed":
         this.trust.set(e.kind, { level: e.level, streak: 0 });
+        break;
+      case "tool.policy":
+        this.toolPolicies.set(e.tool, e.policy);
         break;
       case "watch.created":
         this.watches.set(e.watch.id, e.watch);

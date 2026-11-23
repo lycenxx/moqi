@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { levelOf } from "../src/core/autonomy.js";
+import { levelOf, needsConfirmation, promotionDue } from "../src/core/autonomy.js";
 import { actionPolicy } from "../src/core/plugin.js";
+import { State } from "../src/core/state.js";
+import type { EventBody, MoqiEvent, ToolPolicy } from "../src/core/types.js";
 import { harness } from "./helpers.js";
 
 const reminder = (n: number) => ({
@@ -86,5 +88,36 @@ describe("trust, earned one kind of action at a time", () => {
     const { moqi, asked } = harness();
     expect(await moqi.callTool("watch_list", {}, { byUser: true })).toMatch(/没有托管/);
     expect(asked).toHaveLength(0);
+  });
+});
+
+describe("dangerous tools", () => {
+  const policy = { start: "suggest", cap: "auto-undo", danger: true } as const;
+  let n = 0;
+  const ev = (body: EventBody) => ({ ...body, id: `e_${++n}`, at: n }) as MoqiEvent;
+  const withPolicy = (p?: ToolPolicy, approvals = 0) =>
+    State.from([
+      ...(p ? [ev({ type: "tool.policy", tool: "shell", policy: p })] : []),
+      ...Array.from({ length: approvals }, () => ev({ type: "approval", kind: "shell", approved: true })),
+    ]);
+
+  it("asks unless the user unlocked it, and asks again after outside content", () => {
+    const cases = [
+      [undefined, false, true],
+      [undefined, true, true],
+      ["ask", false, true],
+      ["auto", false, false],
+      ["auto", true, true],
+      ["normal", false, true], // back on the ladder, which starts by asking
+    ] as const;
+    for (const [p, tainted, ask] of cases)
+      expect(needsConfirmation(withPolicy(p), "shell", policy, tainted), `${p} ${tainted}`).toBe(ask);
+    expect(needsConfirmation(withPolicy(), "shell", { ...policy, danger: false }, true)).toBe(true);
+  });
+
+  it("is never offered to stop asking, until the user calls it normal", () => {
+    expect(promotionDue(withPolicy(undefined, 3), "shell", policy)).toBeUndefined();
+    expect(promotionDue(withPolicy("auto", 3), "shell", policy)).toBeUndefined();
+    expect(promotionDue(withPolicy("normal", 3), "shell", policy)).toBe("auto-undo");
   });
 });

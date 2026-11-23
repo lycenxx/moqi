@@ -1,6 +1,6 @@
 // moqi core: pure TypeScript, no Node APIs. Runs on desktop and in mobile JS runtimes.
 export { AGENT, chatTurn, learn, systemPrompt } from "./agent.js";
-export { type ActionPolicy, LEVELS, levelOf, needsConfirmation, promotionDue } from "./autonomy.js";
+export { type ActionPolicy, guarded, LEVELS, levelOf, needsConfirmation, promotionDue } from "./autonomy.js";
 export { type Briefing, composeBriefing } from "./briefing.js";
 export { extractFacts, LEARN, parseJsonObject } from "./learn.js";
 export {
