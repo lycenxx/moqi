@@ -53,6 +53,7 @@ let offersKey = "";
 let thoughtsKey = "";
 let memoryKey = "";
 let todosKey = "";
+let codeKey = "";
 const drafts = new Map(); // offer id -> what the user has typed so far
 
 /* Small helpers */
@@ -262,7 +263,48 @@ async function answer(yes) {
 $("ask-yes").addEventListener("click", () => answer(true));
 $("ask-no").addEventListener("click", () => answer(false));
 
+function renderCode() {
+  const list = $("code-running");
+  const running = (state.code || []).filter((t) => t.status === "running");
+  const key = JSON.stringify(running);
+  if (key === codeKey) return refreshTimes(list);
+  codeKey = key;
+  list.replaceChildren();
+  for (const t of running) {
+    const stop = async (e) => {
+      const button = e.currentTarget;
+      button.disabled = true;
+      try {
+        await api("POST", "/api/code/stop", { id: t.id });
+        toast("让它停下了，已经做的改动会留在分支上");
+      } catch (error) {
+        toast(error.message);
+      }
+      refresh();
+    };
+    list.append(
+      h(
+        "div",
+        { class: "item" },
+        h(
+          "div",
+          { class: "item-main" },
+          h(
+            "p",
+            { class: "item-text" },
+            h("span", { class: "tag", text: "进行中" }),
+            `${t.agent} · ${t.project}：${t.task}`,
+          ),
+          h("p", { class: "item-meta" }, "开始于", timeOf(t.startedAt)),
+        ),
+        h("button", { type: "button", class: "btn", text: "停下", onclick: stop }),
+      ),
+    );
+  }
+}
+
 function renderFeed() {
+  renderCode();
   const list = $("offers");
   const key = JSON.stringify(state.offers);
   if (key !== offersKey) {
@@ -324,6 +366,49 @@ function offerCard(o) {
         ),
       )
     : null;
+  if (o.kind === "code.done") {
+    const task = (state.code || []).find((t) => t.id === o.taskId);
+    const changes = h("pre", { class: "ask-details", hidden: true });
+    const look = async (e) => {
+      const button = e.currentTarget;
+      if (!changes.hidden) {
+        changes.hidden = true;
+        button.textContent = "看改动";
+        return;
+      }
+      button.disabled = true;
+      try {
+        const { diff } = await api("GET", `/api/code/diff?id=${encodeURIComponent(o.taskId)}`);
+        changes.textContent = diff || "（没有改动）";
+        changes.hidden = false;
+        button.textContent = "收起改动";
+      } catch (error) {
+        toast(error.message);
+      }
+      button.disabled = false;
+    };
+    const changed = !!task && task.files > 0;
+    const open = !!task && (task.status === "done" || task.status === "failed");
+    return h(
+      "article",
+      { class: "card" },
+      head,
+      body,
+      changes,
+      h(
+        "div",
+        { class: "actions" },
+        changed && open
+          ? h("button", { type: "button", class: "btn primary", text: "合并", onclick: respond("accepted") })
+          : null,
+        changed ? h("button", { type: "button", class: "btn", text: "看改动", onclick: look }) : null,
+        h("span", { class: "spacer" }),
+        open
+          ? removeButton("丢弃这个任务的分支", "确定丢弃", () => api("POST", "/api/code/discard", { id: o.taskId }))
+          : null,
+      ),
+    );
+  }
   if (o.answer) {
     const box = h("textarea", {
       class: "answer",
@@ -805,6 +890,93 @@ $("p-browser").addEventListener("click", async () => {
   await loadInterop();
 });
 
+async function loadCodeAgents() {
+  let found = { kiro: false, claude: false };
+  try {
+    found = await api("GET", "/api/code/agents");
+  } catch {
+    // shown as none found
+  }
+  const names = [found.kiro ? "Kiro" : "", found.claude ? "Claude Code" : ""].filter(Boolean);
+  $("code-agents").textContent = names.length
+    ? `找到了：${names.join("、")}。Cursor 暂不支持：要先登录，并实测它的权限限制能生效。`
+    : "这台电脑上没找到 Kiro 或 Claude Code。";
+}
+
+function projectRow(p) {
+  const path = h("input", {
+    type: "text",
+    class: "code-path",
+    spellcheck: "false",
+    placeholder: "~/code/项目",
+    "aria-label": "项目路径",
+  });
+  path.value = p.path || "";
+  const agent = h(
+    "select",
+    { class: "policy code-agent", "aria-label": "交给谁" },
+    h("option", { value: "kiro", text: "Kiro" }),
+    h("option", { value: "claude", text: "Claude Code" }),
+  );
+  agent.value = p.agent || "kiro";
+  const commands = h("textarea", {
+    class: "code-commands",
+    rows: "2",
+    spellcheck: "false",
+    placeholder: "pnpm test",
+    "aria-label": "允许跑的命令",
+  });
+  commands.value = (p.commands || []).join("\n");
+  const network = h("input", { type: "checkbox", class: "code-network" });
+  network.checked = !!p.network;
+  const row = h(
+    "div",
+    { class: "item code-project" },
+    h(
+      "div",
+      { class: "item-main" },
+      path,
+      h("p", { class: "hint", text: "允许跑的命令，一行一条；其他命令一律拒绝：" }),
+      commands,
+      h("label", { class: "check" }, network, "允许命令联网（比如要装依赖）"),
+    ),
+    h(
+      "div",
+      { class: "code-side" },
+      agent,
+      h(
+        "button",
+        {
+          type: "button",
+          class: "icon-btn",
+          "aria-label": "删除这个项目",
+          title: "删除这个项目",
+          onclick: () => row.remove(),
+        },
+        icon("trash"),
+      ),
+    ),
+  );
+  return row;
+}
+
+$("code-add").addEventListener("click", () => $("code-projects").append(projectRow({ commands: ["pnpm test"] })));
+
+function projectsInput() {
+  return [...document.querySelectorAll(".code-project")]
+    .map((row) => ({
+      path: row.querySelector(".code-path").value.trim(),
+      agent: row.querySelector(".code-agent").value,
+      commands: row
+        .querySelector(".code-commands")
+        .value.split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean),
+      network: row.querySelector(".code-network").checked,
+    }))
+    .filter((p) => p.path);
+}
+
 async function loadShortcuts(chosen) {
   const box = $("mac-shortcuts");
   box.replaceChildren();
@@ -887,6 +1059,9 @@ async function loadSettings() {
     $("mac-on").checked = !!config.mac;
     if (platform === "darwin") await loadShortcuts(config.mac ? config.mac.shortcuts : []);
     toggle("mac-on", "mac-body");
+    $("code-projects").replaceChildren(...(config.code ? config.code.projects : []).map(projectRow));
+    $("code-timeout").value = String(config.code ? config.code.timeoutMinutes : 30);
+    await loadCodeAgents();
     await loadAgents();
     await loadInterop();
     await loadDangerTools();
@@ -1275,6 +1450,9 @@ $("settings").addEventListener("submit", async (e) => {
     calendar: $("c-on").checked ? { ics: $("c-path").value.trim() } : undefined,
     news: { feeds }, // an empty list turns news off; leaving it out would mean the default feeds
     files: $("f-on").checked ? { folders } : undefined,
+    code: projectsInput().length
+      ? { timeoutMinutes: Number($("code-timeout").value) || 30, projects: projectsInput() }
+      : undefined,
     mac: $("mac-on").checked
       ? { shortcuts: [...$("mac-shortcuts").querySelectorAll("input:checked")].map((c) => c.value) }
       : undefined,

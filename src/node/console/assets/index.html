@@ -72,6 +72,7 @@
       <section class="view" id="view-feed" role="tabpanel" aria-labelledby="tab-feed" hidden>
         <h1 class="title">动态</h1>
         <p class="lead">moqi 主动想告诉你的事。你的每次选择，都会让它更清楚什么时候该开口。</p>
+        <div class="list" id="code-running"></div>
         <div class="list" id="offers"></div>
         <div class="section-head">
           <h2 class="subtitle">moqi 在想</h2>
@@ -260,6 +261,19 @@
                 <p class="hint first">打开 App、在访达里显示文件、截图到桌面、调音量、读写剪贴板。截图第一次需要在「系统设置 → 隐私与安全性 → 屏幕录制」里允许。下面勾选的快捷指令，moqi 也能运行，每次先问你。</p>
                 <div class="feeds" id="mac-shortcuts"></div>
               </div>
+            </div>
+            <div class="field">
+              <span class="label">编程 agent</span>
+              <p class="hint first" id="code-agents">正在找这台电脑上的编程 agent…</p>
+              <div class="list" id="code-projects"></div>
+              <div class="inline">
+                <button type="button" class="btn" id="code-add">添加项目</button>
+                <span class="unit">每个任务最长</span>
+                <label for="code-timeout" class="sr-only">每个任务最长几分钟</label>
+                <input id="code-timeout" type="number" min="1" max="240" step="1" inputmode="numeric" class="short" />
+                <span class="unit">分钟</span>
+              </div>
+              <p class="hint">任务在单独的分支和工作区里做，你点「合并」之前不碰项目目录。agent 只能改工作区里的文件、只能跑你列出的命令，命令在它自己的沙箱里跑。</p>
             </div>
           </fieldset>
 

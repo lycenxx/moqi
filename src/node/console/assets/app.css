@@ -1118,3 +1118,20 @@ input.short {
 #mcp-import:not(:empty) {
   margin-top: 12px;
 }
+
+.code-project {
+  align-items: flex-start;
+}
+
+.code-project .item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.code-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
