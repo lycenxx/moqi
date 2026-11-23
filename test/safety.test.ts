@@ -49,7 +49,7 @@ describe("dangerous actions", () => {
     for (let i = 0; i < 4; i++) await moqi.callTool("shell", { cmd: `echo ${i}` }, { byUser: true });
     expect(asked).toHaveLength(4);
     expect(asked[0]).toBe("要我用「term-server」的 shell 吗？");
-    expect(details[0]).toBe('这是会改动东西的外部工具，每次都要你确认。\n\n{\n  "cmd": "echo 0"\n}');
+    expect(details[0]).toBe('这是会改动东西的动作，每次都要你确认。\n\n{\n  "cmd": "echo 0"\n}');
     expect(delivered.filter((d) => d.offer.kind === "trust.promote")).toHaveLength(0);
     expect(p.ran).toHaveLength(4);
   });

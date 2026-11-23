@@ -634,7 +634,7 @@ function describeAction(tool: Tool, args: Record<string, unknown>): string {
 
 const DETAILS_MAX = 2000;
 const WHY = {
-  danger: "这是会改动东西的外部工具，每次都要你确认。",
+  danger: "这是会改动东西的动作，每次都要你确认。",
   outside: "这一轮读到了外部内容（网页、工具结果、别的 agent 写的话或记忆），所以再确认一次。",
   offer: "这是 moqi 提议的动作，确认一下它实际要做的事。",
 } as const;
