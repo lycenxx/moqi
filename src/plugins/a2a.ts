@@ -87,6 +87,8 @@ export function a2aPlugin(agents: readonly RemoteAgent[], fetchImpl: typeof fetc
         description: `Ask the agent "${agent.name}" over A2A and return its answer. What you send is shared with that agent, so send only what it needs.`,
         input: z.object({ text: z.string().min(1).max(4000).describe("The message for that agent") }),
         effect: "write",
+        danger: true, // what moqi sends leaves the computer
+        source: agent.name,
         describe: ({ text }) => `问 ${agent.name}：「${text.slice(0, 60)}${text.length > 60 ? "…" : ""}」`,
         run: async ({ text }) => {
           const endpoint = await resolve(agent);

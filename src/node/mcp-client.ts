@@ -127,6 +127,9 @@ class Connection {
         t.inputSchema && typeof t.inputSchema === "object" ? t.inputSchema : { type: "object", properties: {} },
       // Only what the server itself calls read-only runs without asking.
       effect: readOnly ? "read" : "write",
+      // Whether a write is harmless is the user's call, not the server's: every MCP write starts out dangerous.
+      ...(!readOnly && { danger: true }),
+      source: this.name,
       describe: (args) =>
         `用 ${this.name} 的「${t.name}」${Object.keys(args).length ? `（${JSON.stringify(args).slice(0, 80)}）` : ""}`,
       run: async (args) => {

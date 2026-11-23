@@ -76,6 +76,9 @@ describe("moqi uses MCP servers", () => {
     });
     expect(h.moqi.tool("echo__echo")?.effect).toBe("read");
     expect(h.moqi.tool("echo__save_note")?.effect).toBe("write");
+    expect(h.moqi.tool("echo__save_note")).toMatchObject({ danger: true, source: "echo" });
+    expect(h.moqi.tool("echo__echo")?.danger).toBeUndefined();
+    expect(h.moqi.dangerousTools().map((t) => t.name)).toEqual(["echo__save_note", "echo__broken", "echo__crash"]);
     expect(h.moqi.watchableTools().map((t) => t.name)).toContain("echo__echo"); // a watch can use it
 
     expect(await h.moqi.callTool("echo__echo", { text: "你好" }, { byUser: false })).toBe("echo: 你好");
@@ -148,6 +151,7 @@ describe("moqi asks other agents over A2A", () => {
       init,
     ) =>
       String(url).startsWith("http://model.test") ? aliceModel.impl(url, init) : fetch(url, init)) as typeof fetch);
+    expect(alice.moqi.tool("ask_bob")).toMatchObject({ danger: true, source: "bob" });
     expect(await alice.moqi.chat("问问 Bob 明天几点开会")).toBe("结果：Bob 说：下午三点开会");
     const bobHeard = bob.moqi.store.all().flatMap((e) => (e.type === "message" && e.role === "user" ? [e.text] : []));
     expect(bobHeard).toEqual(["【moqi】明天几点开会？"]);
