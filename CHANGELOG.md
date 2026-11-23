@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- License: Apache-2.0 from this version, with a NOTICE file that copies and derived works must keep. Versions up to 0.5.0 stay under MIT.
+
 ## [0.5.0] - 2026-11-23
 
 - Todos: a list of what you mean to do, by day, with reminders at a time you set. Those reminders always arrive, in quiet hours and past the daily budget, without using it; a reminder more than half an hour late is treated as an ordinary offer. Unfinished todos roll over and show how many days they were put off; at 21:00 (`todoReviewAt`) moqi lists what is left. Add them in chat ("明天下午三点提醒我交报告"), in the console's new 待办 tab, or from other agents with `moqi_todo`. moqi also learns from them: reflection hears todos you mentioned without asking and offers to keep them, a todo added for three days becomes a daily reminder offer, and study reviews which reminders get done and which get put off.

@@ -1,12 +1,12 @@
 # moqi（默契）
 
-[![CI](https://github.com/wangcao-hub/moqi/actions/workflows/ci.yml/badge.svg)](https://github.com/wangcao-hub/moqi/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/moqi-agent)](https://www.npmjs.com/package/moqi-agent) [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+[![CI](https://github.com/wangcao-hub/moqi/actions/workflows/ci.yml/badge.svg)](https://github.com/wangcao-hub/moqi/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/moqi-agent)](https://www.npmjs.com/package/moqi-agent) [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 
 **不用开口就懂你的个人 agent。** 它从你的日常里了解你，在合适的时候先开口，越用越懂你。
 
 [English](./README.md) · [设计](./docs/design.md) · 基于 [taugraph](https://github.com/wangcao-hub/taugraph)
 
-大多数助理等你来问。moqi 反过来：每隔两小时，以及每次和你聊完，它都会自己想一想，能替你做点什么、该问你点什么好更懂你、外面有什么和你有关的事。你问过三次的事，第四次它直接告诉你；明天要下雨，它前一晚提醒你带伞。它也知道什么时候该闭嘴：晚上不打扰、一天最多打扰三次、你嫌烦的那类事它会越来越少说。
+大多数助理等你来问。moqi 反过来：每隔两小时，以及每次和你聊完，它都会自己想一想，能替你做点什么、该问你点什么好更懂你、外面有什么和你有关的事。你问过三次的事，第四次它直接告诉你；明天要下雨，它前一晚提醒你带伞。你告诉它要做的事，它替你记着：你定了时间的提醒一定准时到，没做完的挪到明天。它也知道什么时候该闭嘴：晚上不打扰、一天最多打扰三次、你嫌烦的那类事它会越来越少说。
 
 内核是纯 TypeScript，不依赖 Node 专有 API，同一份代码可以跑在电脑上，也可以放进手机 App。
 
@@ -21,6 +21,7 @@ flowchart LR
     cal[日历]
     wx[天气]
     rss[新闻]
+    todo[你的待办]
   end
   log[("events.jsonl<br/>只追加")]
   subgraph understand [懂得多]
@@ -45,16 +46,18 @@ flowchart LR
   react -->|接受 · 忽略 · 拒绝 · 关掉| log
 ```
 
-一条提议怎么到你面前。图里是默认值，每一类提议各自学自己的门槛：
+一条提议怎么到你面前。你给待办定的时间到了，提醒直接弹通知；其他提议都要过下面这几关。图里是默认值，每一类提议各自学自己的门槛：
 
 ```mermaid
 flowchart LR
-  o["提议<br/>类型 · 价值 0–1 · 紧急程度"] --> m{这类被<br/>关掉了?}
+  o["提议<br/>类型 · 价值 0–1 · 紧急程度"] --> u{"你定的<br/>时间到了?"}
+  u -->|是| n[系统通知]
+  u -->|不是| m{这类被<br/>关掉了?}
   m -->|没有| w{"紧急程度是<br/>whenever?"}
   w -->|不是| t{"价值 ≥ 这类的门槛?<br/>初始 0.5"}
   t -->|是| q{"免打扰时段?<br/>22:30–08:00"}
   q -->|不在| b{"今天通知<br/>不到 3 次?"}
-  b -->|是| n[系统通知]
+  b -->|是| n
   m -->|是| drop[不说]
   w -->|是| feed[放进动态]
   t -->|否| feed
@@ -94,6 +97,8 @@ moqi             # 在后台运行 moqi，并在浏览器里打开控制台
 
 控制台有五个栏目：**对话**；**待办**（今天的、以后的和最近完成的，可以勾掉、删除，也能加一件，日期和提醒时间可选）；**动态**（moqi 主动想告诉你的事、它问你的问题（可以直接回答），以及「moqi 在想」：它想过的每个点子和结果）；**记忆**（它记住了你什么、自己学到了什么、替你盯着什么，记错的可以删）；**设置**。第一次打开会直接进设置：选一个模型，点「测试连接」，搜一下你的城市，选几个新闻源，保存。改完立刻生效，不用重启。
 
+![待办页](./docs/todos.png)
+
 任何 OpenAI 兼容的模型都可以。本机 Ollama 不用 key：`qwen3:4b`（2.5 GB）哪里都能跑；[Muse Glimmer](https://ollama.com/library/muse-glimmer) 是 Meta 给常驻本地 agent 做的开源模型，想得好得多，但要约 18 GB 磁盘、24 GB 以上内存。DeepSeek、通义千问这类云端模型要填 key。对话长了回答被截断的话，调大 Ollama 的上下文窗口，例如 `OLLAMA_CONTEXT_LENGTH=16384 ollama serve`。
 
 | 命令          | 做什么                                                                                        |
@@ -112,9 +117,11 @@ moqi             # 在后台运行 moqi，并在浏览器里打开控制台
 ```
 你：我住在深圳南山，在一家互联网公司做产品
 moqi：记住了
+你：半小时后提醒我给妈妈回电话
+moqi：记下了，11:10 提醒你给妈妈回电话。（进了待办，不用确认，到点一定提醒）
 你：每天晚上 10 点提醒我早点睡
-（控制台弹出：要我每天 22:00提醒你「早点睡」吗？ 好 / 不用）
-moqi：已设好，每天 22:00 提醒早点睡。
+（控制台弹出：要我每天 22:00 提醒你「早点睡」吗？ 好 / 不用）
+moqi：已设好，每天 22:00 提醒你早点睡。
 ```
 
 ## 和其他 agent 协作（MCP 与 A2A）
@@ -259,10 +266,12 @@ setInterval(() => void moqi.tick(), 60_000); // 主动服务的心跳
 
 ## 现状与限制
 
-目前只在电脑上运行。已经可用的：内核、控制台、命令行、天气与日历插件、系统通知、托管事务、习惯识别、对话中的旁路学习。
+目前只在电脑上运行。已经可用的：内核、控制台、命令行、天气/日历/新闻插件、系统通知、待办与提醒、托管事务、习惯识别、心思与自学，以及双向的 MCP 和 A2A。
 
 - 手机 App 和多设备同步还没做（P1）。内核已经按能跑在手机里的标准写，有测试检查。
 - 日历只读单次日程，重复日程（RRULE）暂时不展开。
+- 系统通知上没有按钮（macOS 的通知来自 `osascript`）。勾掉提醒要去控制台的「动态」或「待办」，或者在对话里说一声。
+- 待办不能设成重复。每天、每周都要做的事，直接说"每天……提醒我"，moqi 会建一件托管事务。
 - 用本机 4B 小模型时，后台抽取偶尔会把一次性的请求当成事实；换更大的模型会好很多。你随时可以用 `/memory` 查看，用"忘掉某某"删除。
 - 心思的质量取决于模型。用 `qwen3:4b` 时，想一次大约一分钟，能想出一到三个点子，有时一个也没有；换更大的模型，比如本机的 [Muse Glimmer](https://ollama.com/library/muse-glimmer) 或云端模型，会想得好得多。
 - "办完可撤销"这一级目前的意思是"直接办，并告诉你"，撤销要靠对应的取消操作。
@@ -278,4 +287,6 @@ pnpm check      # 类型检查、lint、测试（测试固定在 Asia/Shanghai �
 
 ## 许可证
 
-[MIT](./LICENSE)
+[Apache License 2.0](./LICENSE)。你可以使用、修改、再发布 moqi，也可以用在商业产品里。发布 moqi 或基于它的作品时，要附上 [LICENSE](./LICENSE) 和 [NOTICE](./NOTICE) 两个文件，让 moqi 的出处跟着你的版本走，并标明你改过哪些文件。
+
+0.5.0 及以前的版本以 MIT 协议发布，这些版本仍然适用 MIT。

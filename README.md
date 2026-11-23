@@ -1,12 +1,12 @@
 # moqi
 
-[![CI](https://github.com/wangcao-hub/moqi/actions/workflows/ci.yml/badge.svg)](https://github.com/wangcao-hub/moqi/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/moqi-agent)](https://www.npmjs.com/package/moqi-agent) [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+[![CI](https://github.com/wangcao-hub/moqi/actions/workflows/ci.yml/badge.svg)](https://github.com/wangcao-hub/moqi/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/moqi-agent)](https://www.npmjs.com/package/moqi-agent) [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 
 **A personal agent you don't have to ask.** moqi (默契, "tacit understanding") learns you from everyday life, speaks up first when it matters, and gets better at both the more you use it.
 
 [中文文档](./README.zh-CN.md) · [Design (Chinese)](./docs/design.md) · Built on [taugraph](https://github.com/wangcao-hub/taugraph)
 
-Most assistants wait to be asked. moqi works the other way round. Every couple of hours, and soon after you talk to it, it thinks about you on its own: what it could do for you, what it should ask to understand you better, which news matters to you. Ask the same thing three mornings in a row and on the fourth it tells you unasked; if it will rain tomorrow it reminds you the evening before. It also knows when to stay quiet: no interruptions at night, at most three a day, and less of whatever you keep dismissing.
+Most assistants wait to be asked. moqi works the other way round. Every couple of hours, and soon after you talk to it, it thinks about you on its own: what it could do for you, what it should ask to understand you better, which news matters to you. Ask the same thing three mornings in a row and on the fourth it tells you unasked; if it will rain tomorrow it reminds you the evening before. Tell it what you have to do and it keeps the list: a reminder at the time you set always arrives, and what you did not finish moves to tomorrow. It also knows when to stay quiet: no interruptions at night, at most three a day, and less of whatever you keep dismissing.
 
 The core is plain TypeScript with no Node-only APIs, so the same code runs on a computer and inside a phone app.
 
@@ -21,6 +21,7 @@ flowchart LR
     cal[Calendar]
     wx[Weather]
     rss[News]
+    todo[Your todos]
   end
   log[("events.jsonl<br/>append-only")]
   subgraph understand [Understand]
@@ -45,16 +46,18 @@ flowchart LR
   react -->|accept · ignore · dismiss · mute| log
 ```
 
-How one offer reaches you. The numbers are the defaults, and every kind of offer learns its own threshold.
+How one offer reaches you. A todo reminder at the time you set goes straight to a notification; every other offer passes these checks. The numbers are the defaults, and every kind of offer learns its own threshold.
 
 ```mermaid
 flowchart LR
-  o["Offer<br/>kind · value 0–1 · urgency"] --> m{Kind<br/>muted?}
+  o["Offer<br/>kind · value 0–1 · urgency"] --> u{"At a time<br/>you set?"}
+  u -->|yes| n[Notification]
+  u -->|no| m{Kind<br/>muted?}
   m -->|no| w{"Urgency<br/>'whenever'?"}
   w -->|no| t{"value ≥ this<br/>kind's threshold?<br/>starts at 0.5"}
   t -->|yes| q{"Quiet hours?<br/>22:30–08:00"}
   q -->|no| b{"Under 3<br/>notifications<br/>today?"}
-  b -->|yes| n[Notification]
+  b -->|yes| n
   m -->|yes| drop[Dropped]
   w -->|yes| feed[Feed]
   t -->|no| feed
@@ -94,6 +97,8 @@ The console lives at **http://moqi.localhost:6674** (6674 spells MOQI on a phone
 
 It has five tabs: **Chat**, **Todos** (today, later and recently done: tick off, delete, or add one with an optional day and reminder time), **Feed** (what moqi wants to tell you, its questions with an answer box, and "moqi 在想": every idea it had and what became of it), **Memory** (what it remembers about you, what it learned on its own, and what it watches for you; delete anything wrong) and **Settings**. The first time, it opens on Settings: pick a model, press "test connection", search for your city, pick news feeds, save. Changes apply at once, without a restart. The console's own text is in Chinese for now.
 
+![The Todos tab](./docs/todos.png)
+
 Any OpenAI-compatible model works. A local Ollama needs no key: `qwen3:4b` (2.5 GB) runs anywhere, and [Muse Glimmer](https://ollama.com/library/muse-glimmer), Meta's open-weights model for always-on local agents, thinks far better if you have the room (about 18 GB on disk, 24 GB of memory or more). DeepSeek, Qwen and other hosted models need a key. If replies get cut off as a conversation grows, give Ollama a larger context window, e.g. `OLLAMA_CONTEXT_LENGTH=16384 ollama serve`.
 
 | Command       | What it does                                                                                                         |
@@ -108,6 +113,15 @@ Any OpenAI-compatible model works. A local Ollama needs no key: `qwen3:4b` (2.5 
 | `moqi init`   | Writes a config template, for machines without a browser                                                             |
 
 The background moqi reaches you through system notifications (macOS, Linux) and the console's feed. One moqi owns a home directory at a time; the console, `moqi brief` and (later) the phone all go through it.
+
+Things to say, for a start (moqi answers in Chinese):
+
+| Say                                      | What happens                                                                 |
+| ---------------------------------------- | ---------------------------------------------------------------------------- |
+| `我住在深圳南山，在一家互联网公司做产品` | It remembers where you live and what you do                                  |
+| `半小时后提醒我给妈妈回电话`             | A todo with a reminder in 30 minutes; it arrives on time, quiet hours or not |
+| `明天下午三点提醒我交报告`               | The same for tomorrow at 15:00; it is in tomorrow's briefing too             |
+| `每天早上告诉我天气`                     | A watch; moqi asks once in the console before it sets it up                  |
 
 ## Working with other agents (MCP and A2A)
 
@@ -251,10 +265,12 @@ What leaves your computer: requests to the model endpoint you configured (the co
 
 ## Status and limits
 
-moqi runs on a computer: core, console, CLI, weather and calendar plugins, notifications, watches, routines and background learning.
+moqi runs on a computer: core, console, CLI, weather, calendar and news plugins, notifications, todos and reminders, watches, routines, reflection and study, and MCP and A2A in both directions.
 
 - The phone app and multi-device sync are next. The core already follows the rules needed to run on a phone, and a test enforces them.
 - Repeating calendar events (RRULE) are not expanded yet.
+- Notifications have no buttons (on macOS they come from `osascript`). Tick a reminder off in the console's Feed or Todos tab, or tell moqi in chat.
+- Todos do not repeat. For something every day or every week, ask for a reminder in those words and moqi sets up a watch.
 - Small local models (4B) sometimes record one-off requests as facts. Check with `/memory`; ask moqi to forget anything wrong.
 - Reflection is only as good as the model. With `qwen3:4b` a reflection takes about a minute and yields one to three ideas, sometimes none; a bigger model, such as [Muse Glimmer](https://ollama.com/library/muse-glimmer) locally or a hosted one, thinks much better.
 - `auto-undo` currently means "do it and tell you"; undoing is the matching cancel action.
@@ -270,4 +286,6 @@ pnpm check      # typecheck, lint, tests (pinned to Asia/Shanghai)
 
 ## License
 
-[MIT](./LICENSE)
+[Apache License 2.0](./LICENSE). You may use, change and redistribute moqi, also in commercial products. If you ship moqi or a work based on it, include the [LICENSE](./LICENSE) and [NOTICE](./NOTICE) files, so the credit to moqi travels with your copy, and mark the files you changed.
+
+Versions up to 0.5.0 were released under the MIT License, and those copies stay under it.
