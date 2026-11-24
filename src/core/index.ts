@@ -45,6 +45,7 @@ export { dayKey, describeSchedule, minuteOfDay, nextRun, parseTime, validateSche
 export { hostOf, pageHost, type SiteGrant, type SiteRole, siteDecision } from "./sites.js";
 export { type KindStats, type OfferRecord, RULES, State, type Study, type Thought, type Trust } from "./state.js";
 export { lessonsDue, lessonsSection, notesSection, STUDY, study, studySection } from "./study.js";
+export { SUMMARY, summarize, summaryDue } from "./summary.js";
 export * from "./todo.js";
 export * from "./types.js";
 export { runWatch, type WatchDeps, type WatchOutcome, watchGraph } from "./watch.js";

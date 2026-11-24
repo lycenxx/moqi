@@ -265,6 +265,7 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
         question: asker.pending() ?? null,
         thinking: moqi.isReflecting,
         studying: moqi.isStudying,
+        summary: moqi.state.summary ?? null,
         lessons: [...moqi.state.lessons.values()].reverse(),
         notes: [...moqi.state.notes.values()].reverse().slice(0, 30),
         lastStudy: moqi.state.studies.at(-1) ?? null,

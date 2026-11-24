@@ -654,7 +654,7 @@ $("todo-form").addEventListener("submit", async (e) => {
 
 function renderMemory() {
   renderStudyStatus();
-  const key = JSON.stringify([state.facts, state.watches, state.lessons, state.notes]);
+  const key = JSON.stringify([state.facts, state.watches, state.lessons, state.notes, state.summary]);
   if (key === memoryKey) return; // keeps a half-done two-step delete as it is
   memoryKey = key;
   const facts = $("facts");
@@ -683,9 +683,24 @@ function renderMemory() {
   }
   const learned = $("learned");
   learned.replaceChildren();
-  if (state.lessons.length + state.notes.length === 0) {
+  if (state.lessons.length + state.notes.length === 0 && !state.summary) {
     learned.append(
       h("p", { class: "none", text: "还没学到什么。你不在的时候，它会复盘自己做得怎么样，也会读和你有关的文章。" }),
+    );
+  }
+  if (state.summary) {
+    learned.append(
+      h(
+        "div",
+        { class: "item" },
+        h(
+          "div",
+          { class: "item-main" },
+          h("p", { class: "item-text" }, h("span", { class: "tag", text: "摘要" }), state.summary.text),
+          h("p", { class: "item-meta" }, "更早的对话，不再原样发给模型 · ", timeOf(state.summary.at)),
+        ),
+        removeButton("删除这份摘要", "确定删除", () => api("POST", "/api/learned/remove", { id: "summary" })),
+      ),
     );
   }
   for (const l of state.lessons) {
