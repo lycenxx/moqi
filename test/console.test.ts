@@ -250,6 +250,16 @@ describe("console", () => {
     expect(after.data.busy).toBe(false);
     expect(after.data.watches).toEqual([]);
   });
+  it("counts the model calls of the day for the settings page", async () => {
+    const { api, home } = await start({ model: { baseURL: "http://m.test/v1", model: "m" }, briefingAt: null });
+    expect((await api("GET", "/api/usage")).data.days).toEqual([]);
+    await api("POST", "/api/chat", { text: "你好" });
+    await home.moqi.idle();
+    const { data } = await api("GET", "/api/usage");
+    expect(data.since).toBeGreaterThan(0);
+    expect(data.days).toHaveLength(1);
+    expect(data.days[0].chat).toMatchObject({ attempts: 1, failed: 0 });
+  });
   it("says so instead of chatting when no model is set", async () => {
     const { api } = await start({});
     const res = await api("POST", "/api/chat", { text: "你好" });

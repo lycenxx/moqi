@@ -20,6 +20,7 @@ import { filesPlugin } from "./files.js";
 import { macPlugin } from "./mac.js";
 import { McpHub, type McpServerStatus } from "./mcp-client.js";
 import { desktopNotifier, type Notifier } from "./notify.js";
+import { UsageLog } from "./usage.js";
 
 export interface HomeOptions {
   readonly home: string;
@@ -75,6 +76,8 @@ export interface Home {
   reconfigure(config: Config): Promise<void>;
   /** Runs coding tasks; lives as long as the home, so a rebuild of moqi does not lose them. */
   readonly code: CodeRunner;
+  /** What the model calls took since this home was opened. */
+  readonly usage: UsageLog;
   close(): void;
 }
 
@@ -120,6 +123,11 @@ export function openHome(options: HomeOptions): Home {
     let reconfigureLater = async (_next: Config) => {};
     let config = options.config ?? loadConfig(options.home);
     const hub = new McpHub(VERSION);
+    const usage = new UsageLog();
+    const onCall = (call: ModelCall) => {
+      usage.record(call);
+      options.onModelCall?.(call);
+    };
     // A finished task is reported to whichever moqi is current by then, after the jobs before it.
     const code = codeRunner({
       home: options.home,
@@ -129,7 +137,7 @@ export function openHome(options: HomeOptions): Home {
       ...(options.codeLaunch && { launch: options.codeLaunch }),
     });
     if (options.mcp !== false) hub.reconcile(config.mcp?.servers);
-    let moqi = build(config, store, options, notify, agents, hub, code);
+    let moqi = build(config, store, options, notify, agents, hub, code, onCall);
     moqi.recoverCode(); // tasks a previous run left running were cut short
     let chain: Promise<unknown> = Promise.resolve();
     const serial = <T>(job: () => Promise<T>): Promise<T> => {
@@ -141,14 +149,14 @@ export function openHome(options: HomeOptions): Home {
     hub.watch(() => {
       void serial(async () => {
         await moqi.idle();
-        moqi = build(config, store, options, notify, agents, hub, code);
+        moqi = build(config, store, options, notify, agents, hub, code, onCall);
       });
     });
     const reconfigure = (next: Config) =>
       serial(async () => {
         await moqi.idle();
         if (options.mcp !== false) hub.reconcile(next.mcp?.servers);
-        moqi = build(next, store, options, notify, agents, hub, code);
+        moqi = build(next, store, options, notify, agents, hub, code, onCall);
         config = next;
       });
     reconfigureLater = (next) => reconfigure(next);
@@ -166,6 +174,7 @@ export function openHome(options: HomeOptions): Home {
       reconfigure,
       mcpStatus: () => hub.status(),
       code,
+      usage,
       close: () => {
         hub.stop();
         release();
@@ -185,6 +194,7 @@ function build(
   agents: AgentsPluginOptions | undefined,
   hub: McpHub,
   code: CodeRunner,
+  onCall: (call: ModelCall) => void,
 ): Moqi {
   return new Moqi({
     store,
@@ -192,7 +202,7 @@ function build(
       model: openAICompatible({
         ...config.model,
         ...(options.fetch && { fetch: options.fetch }),
-        ...(options.onModelCall && { onCall: options.onModelCall }),
+        onCall,
       }),
     }),
     plugins: [

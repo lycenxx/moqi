@@ -546,6 +546,7 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       return { message };
     },
 
+    "GET /api/usage": () => ({ since: home.usage.since, days: home.usage.recent() }),
     "GET /api/tools": () => ({ tools: home.moqi.dangerousTools() }),
 
     "POST /api/tool-policy": async (body) => {

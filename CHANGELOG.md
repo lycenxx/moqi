@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Settings: 模型用量 shows, for each of the last seven days, how many model requests moqi sent (retries included), how many failed, how long an answer took on average and the tokens the model reported, for conversations and for background work (learning, reflecting, studying, summaries) apart. It counts from when moqi started and is not kept across restarts; the 测试连接 button is not counted.
+
 - Conversation: moqi sends the model the last 12 messages as before, and now also a short summary of the older ones. Once eight messages have fallen out of the window, a background request folds them (and the old summary) into a new summary, at most 800 characters. It comes with the other reference material, not in the system prompt. The Memory tab shows it as 摘要 and you can delete it; a deleted summary is not written again from the same messages. A failed request leaves the messages for the next time.
 
 - Chat: a 停止 button next to "moqi 在想" ends the conversation turn at once, also while moqi waits for your answer to a question (counted as no); the text goes back into the input box. The tool calls the model still had queued are not run. A turn stopped before it began leaves nothing in the conversation.

@@ -140,7 +140,10 @@ function show(next, focus) {
     $(`view-${name}`).hidden = !on;
     if (on && focus) tab.focus();
   }
-  if (next === "settings" && !settingsLoaded) loadSettings();
+  if (next === "settings") {
+    if (!settingsLoaded) loadSettings();
+    loadUsage();
+  }
   if (next === "chat") {
     scrollToEnd();
     $("input").focus({ preventScroll: true });
@@ -1157,6 +1160,47 @@ function actionButton(text, primary, run) {
   return b;
 }
 
+function usageLine(label, k) {
+  if (k.attempts === 0) return null;
+  const answered = k.attempts - k.failed;
+  const parts = [`${label} ${k.attempts} 次`];
+  if (k.failed > 0) parts.push(`失败 ${k.failed}`);
+  if (answered > 0) {
+    const ms = k.answeredMs / answered;
+    parts.push(`平均 ${ms < 1000 ? `${Math.round(ms)} 毫秒` : `${(ms / 1000).toFixed(1)} 秒`}`);
+  }
+  if (k.counted > 0) parts.push(`${k.promptTokens.toLocaleString()} + ${k.completionTokens.toLocaleString()} token`);
+  return parts.join(" · ");
+}
+async function loadUsage() {
+  const list = $("usage");
+  try {
+    const { days } = await api("GET", "/api/usage");
+    list.replaceChildren();
+    if (days.length === 0) list.append(h("p", { class: "none", text: "还没调用过模型。" }));
+    days.forEach((d, i) => {
+      const lines = [usageLine("对话", d.chat), usageLine("后台", d.background)].filter(Boolean);
+      list.append(
+        h(
+          "div",
+          { class: "item" },
+          h(
+            "div",
+            { class: "item-main" },
+            h("p", { class: "item-text", text: i === 0 && d.day === localDay() ? "今天" : d.day }),
+            ...lines.map((text) => h("p", { class: "item-meta", text })),
+          ),
+        ),
+      );
+    });
+  } catch (error) {
+    list.replaceChildren(h("p", { class: "none", text: error.message }));
+  }
+}
+function localDay() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 const POLICY_LABEL = { ask: "每次都问", auto: "放开（读过外部内容时仍会问）", normal: "普通" };
 
 async function loadDangerTools() {
