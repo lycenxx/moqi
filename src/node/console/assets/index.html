@@ -81,7 +81,10 @@
       </section>
 
       <section class="view" id="view-feed" role="tabpanel" aria-labelledby="tab-feed" hidden>
-        <h1 class="title">动态</h1>
+        <div class="page-head">
+          <h1 class="title">动态</h1>
+          <button type="button" class="btn" id="think">现在想一想</button>
+        </div>
         <p class="lead">moqi 主动想告诉你的事。你的每次选择，都会让它更清楚什么时候该开口。</p>
         <div class="list" id="code-running"></div>
         <div class="list" id="offers"></div>
@@ -93,7 +96,6 @@
         <button type="button" class="btn ghost more" id="history-more" hidden>再看 20 条</button>
         <div class="section-head">
           <h2 class="subtitle">moqi 在想</h2>
-          <button type="button" class="btn" id="think">现在想一想</button>
         </div>
         <p class="hint think-status" id="think-status"></p>
         <div class="list" id="thoughts"></div>
@@ -309,7 +311,7 @@
             <div class="list" id="mcp-servers"></div>
             <div class="list" id="mcp-import"></div>
             <h3 class="minor">会改动东西的工具</h3>
-            <p class="hint">外来的写工具默认每次都先问你。放开后直接办，但这一轮读过网页、文件或别的 agent 的消息时，仍会先问。</p>
+            <p class="hint">外来的写工具默认每次都先问你。可以逐个放开，也可以按来源整组放开；放开后直接办，但这一轮读过网页、文件或别的 agent 的消息时，仍会先问。</p>
             <div class="list" id="danger-tools"></div>
             <h3 class="minor">普通动作</h3>
             <p class="hint">新建、移动、改名这类不覆盖、不删除东西的动作。连着同意 3 次后 moqi 也会问你要不要直接办。</p>

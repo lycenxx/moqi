@@ -623,6 +623,15 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       };
     },
 
+    "POST /api/tool-policy/source": async (body) => {
+      const source = str(body.source, "source");
+      const policy = str(body.policy, "policy");
+      if (policy !== "ask" && policy !== "auto") throw new HttpError(400, "policy 只能是 ask 或 auto");
+      if (!home.moqi.dangerousTools().some((t) => t.source === source))
+        throw new HttpError(400, `${source} 没有会改动东西的工具`);
+      return { message: await home.serial(async () => home.moqi.setSourcePolicy(source, policy)) };
+    },
+
     "POST /api/tool-level": async (body) => {
       const name = str(body.tool, "tool");
       const level = str(body.level, "level");

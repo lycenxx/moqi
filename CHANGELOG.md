@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Fix: weather watches named after your city reported 北京. The config template no longer puts in 北京 as a placeholder; the weather tool takes a city (`place`) and looks it up, so "南京天气" watches carry 南京; and when moqi remembers you live somewhere other than the weather place, it offers once to switch, saving the new place when you accept.
+- Settings: unlock all of one MCP server's tools at once, or set them all back to asking; unlocking takes a second tap and leaves tools the server adds later asking. Tools are listed by where they come from.
+- Feed: 「现在想一想」 sits at the top of the page.
+
 ## [0.7.1] - 2026-11-23
 
 - Fix: after a crash left the last line of `events.jsonl` half written, the next event was written onto the same line and lost on the following start. The log now ends a torn last line before writing again. Thanks @lycenxx (#1).

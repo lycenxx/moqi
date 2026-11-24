@@ -1588,3 +1588,35 @@ input.short {
   align-self: center;
   margin-top: 8px;
 }
+
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.page-head .title {
+  margin: 0;
+}
+
+.page-head + .lead {
+  margin-top: 4px;
+}
+
+.source-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.source-name {
+  margin: 0;
+  font-weight: 600;
+}
+
+.source-head .spacer {
+  flex: 1;
+}

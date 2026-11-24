@@ -1576,42 +1576,85 @@ async function loadDangerTools() {
     const { tools, ordinary, sites } = await api("GET", "/api/tools");
     list.replaceChildren();
     if (tools.length === 0) list.append(h("p", { class: "none", text: "现在没有会改动东西的外来工具。" }));
-    for (const t of tools) {
-      const select = h(
-        "select",
-        { class: "policy", "aria-label": `${t.name} 怎么处理` },
-        Object.entries(POLICY_LABEL).map(([value, text]) => h("option", { value, text })),
-      );
-      select.value = t.policy;
-      select.addEventListener("change", async () => {
-        select.disabled = true;
-        try {
-          toast((await api("POST", "/api/tool-policy", { tool: t.name, policy: select.value })).message);
-        } catch (error) {
-          toast(error.message);
-          select.value = t.policy;
-        }
-        select.disabled = false;
-      });
-      list.append(
-        h(
-          "div",
-          { class: "item" },
-          h(
-            "div",
-            { class: "item-main" },
-            h("p", { class: "item-text", text: t.name }),
-            h("p", { class: "item-meta", text: `来自 ${t.source}` }),
-          ),
-          select,
-        ),
-      );
+    // Grouped by where the tools come from; a group of several can be decided all at once.
+    const groups = new Map();
+    for (const t of tools) groups.set(t.source, [...(groups.get(t.source) || []), t]);
+    for (const [source, group] of groups) {
+      if (group.length > 1) list.append(sourceHead(source, group));
+      for (const t of group) list.append(toolRow(t));
     }
     renderOrdinary(ordinary);
     renderSites(sites);
   } catch (error) {
     list.replaceChildren(h("p", { class: "none", text: error.message }));
   }
+}
+
+function toolRow(t) {
+  const select = h(
+    "select",
+    { class: "policy", "aria-label": `${t.name} 怎么处理` },
+    Object.entries(POLICY_LABEL).map(([value, text]) => h("option", { value, text })),
+  );
+  select.value = t.policy;
+  select.addEventListener("change", async () => {
+    select.disabled = true;
+    try {
+      toast((await api("POST", "/api/tool-policy", { tool: t.name, policy: select.value })).message);
+    } catch (error) {
+      toast(error.message);
+      select.value = t.policy;
+    }
+    select.disabled = false;
+  });
+  return h(
+    "div",
+    { class: "item" },
+    h(
+      "div",
+      { class: "item-main" },
+      h("p", { class: "item-text", text: t.name }),
+      h("p", { class: "item-meta", text: `来自 ${t.source}` }),
+    ),
+    select,
+  );
+}
+
+/** One source's tools decided together. Unlocking them all takes a second tap. */
+function sourceHead(source, group) {
+  const setAll = async (policy, button) => {
+    button.disabled = true;
+    try {
+      toast((await api("POST", "/api/tool-policy/source", { source, policy })).message);
+    } catch (error) {
+      toast(error.message);
+    }
+    loadDangerTools();
+  };
+  const unlock = h("button", { type: "button", class: "btn", text: "全部放开" });
+  let armed = 0;
+  unlock.addEventListener("click", () => {
+    if (armed) return setAll("auto", unlock);
+    unlock.textContent = "确定全部放开";
+    unlock.classList.add("primary");
+    armed = setTimeout(() => {
+      armed = 0;
+      unlock.textContent = "全部放开";
+      unlock.classList.remove("primary");
+    }, 4000);
+  });
+  const lock = h("button", { type: "button", class: "btn", text: "全部每次都问" });
+  lock.addEventListener("click", () => setAll("ask", lock));
+  const allOpen = group.every((t) => t.policy === "auto");
+  const allAsk = group.every((t) => t.policy === "ask");
+  return h(
+    "div",
+    { class: "source-head" },
+    h("p", { class: "source-name", text: `${source} · ${group.length} 个工具` }),
+    h("span", { class: "spacer" }),
+    allOpen ? null : unlock,
+    allAsk ? null : lock,
+  );
 }
 
 const LEVEL_LABEL = { ask: "先问我", auto: "直接办，办完告诉你" };

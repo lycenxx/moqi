@@ -190,6 +190,16 @@ export class Moqi {
     return `${name} 每次都会先问你`;
   }
 
+  /** The user's decision for every dangerous tool of one source at once, the same as deciding each in turn. */
+  setSourcePolicy(source: string, policy: "ask" | "auto"): string {
+    const tools = this.dangerousTools().filter((t) => t.source === source);
+    if (tools.length === 0) throw new Error(`${source} 没有会改动东西的工具`);
+    for (const t of tools) this.emit({ type: "tool.policy", tool: t.name, policy });
+    return policy === "auto"
+      ? `把 ${source} 的 ${tools.length} 个工具都放开了；这一轮读过外部内容时仍会先问`
+      : `${source} 的 ${tools.length} 个工具以后每次都先问`;
+  }
+
   /** Sites the user allowed for good, in order. */
   rememberedSites(): string[] {
     return [...this.state.sites].sort();
