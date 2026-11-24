@@ -7,11 +7,11 @@ import type { CodeRunner } from "../core/code.js";
 import { type ModelCall, openAICompatible } from "../core/model.js";
 import { Moqi, type MoqiOptions } from "../core/moqi.js";
 import type { Plugin } from "../core/plugin.js";
-import type { EventStore, Offer, Surface } from "../core/types.js";
+import type { Answer, EventStore, Offer, Surface } from "../core/types.js";
 import { a2aPlugin } from "../plugins/a2a.js";
 import { calendarPlugin } from "../plugins/calendar.js";
 import { newsPlugin } from "../plugins/news.js";
-import { weatherPlugin } from "../plugins/weather.js";
+import { type WeatherPlace, weatherPlugin } from "../plugins/weather.js";
 import { type AgentsPluginOptions, agentsPlugin } from "./agents.js";
 import { codeRunner, type Launch } from "./code.js";
 import { type Config, expandHome, loadConfig, readConfigFile, saveConfig } from "./config.js";
@@ -19,8 +19,16 @@ import { acquireLock, fileEventStore } from "./file-store.js";
 import { filesPlugin } from "./files.js";
 import { macPlugin } from "./mac.js";
 import { McpHub, type McpServerStatus } from "./mcp-client.js";
+import { type MediaStore, mediaStore } from "./media.js";
 import { desktopNotifier, type Notifier } from "./notify.js";
 import { UsageLog } from "./usage.js";
+
+/** A typed answer to a question in the terminal. "a" means "以后都允许", only where the question offers it. */
+export function terminalAnswer(line: string, always: boolean): Answer {
+  const text = line.trim();
+  if (always && /^(a|always|以后都允许)$/i.test(text)) return "always";
+  return /^(y|yes|好|是|可以)/i.test(text);
+}
 
 export interface HomeOptions {
   readonly home: string;
@@ -78,6 +86,8 @@ export interface Home {
   readonly code: CodeRunner;
   /** What the model calls took since this home was opened. */
   readonly usage: UsageLog;
+  /** Images the user sent and tools brought back. */
+  readonly media: MediaStore;
   close(): void;
 }
 
@@ -85,9 +95,18 @@ export function pluginsFrom(
   config: Config,
   fetchImpl?: typeof fetch,
   platform: NodeJS.Platform = process.platform,
+  media?: MediaStore,
+  saveWeather?: (place: WeatherPlace) => void | Promise<void>,
 ): Plugin[] {
   const plugins: Plugin[] = [];
-  if (config.weather) plugins.push(weatherPlugin({ ...config.weather, ...(fetchImpl && { fetch: fetchImpl }) }));
+  // Always there: without a place of its own, the weather tool still answers for a city it is given.
+  plugins.push(
+    weatherPlugin({
+      ...config.weather,
+      ...(fetchImpl && { fetch: fetchImpl }),
+      ...(saveWeather && { save: saveWeather }),
+    }),
+  );
   if (config.calendar) {
     const path = expandHome(config.calendar.ics);
     plugins.push(calendarPlugin({ load: () => readFileSync(path, "utf8") }));
@@ -96,7 +115,8 @@ export function pluginsFrom(
   if (config.news && config.news.feeds.length > 0)
     plugins.push(newsPlugin({ feeds: config.news.feeds, ...(fetchImpl && { fetch: fetchImpl }) }));
   if (config.files) plugins.push(filesPlugin({ folders: config.files.folders }));
-  if (config.mac && platform === "darwin") plugins.push(macPlugin({ shortcuts: config.mac.shortcuts }));
+  if (config.mac && platform === "darwin")
+    plugins.push(macPlugin({ shortcuts: config.mac.shortcuts, ...(media && { media }) }));
   return plugins;
 }
 
@@ -122,7 +142,14 @@ export function openHome(options: HomeOptions): Home {
     // A tool runs inside a serial job, so the rebuild it asks for is queued after that job, not awaited in it.
     let reconfigureLater = async (_next: Config) => {};
     let config = options.config ?? loadConfig(options.home);
-    const hub = new McpHub(VERSION);
+    // The user accepted moqi's offer to take the weather from where they live: keep it, then rebuild.
+    const saveWeather = (place: WeatherPlace) => {
+      const file = readConfigFile(options.home);
+      saveConfig(options.home, { ...file, weather: place });
+      void reconfigureLater(loadConfig(options.home));
+    };
+    const media = mediaStore(options.home);
+    const hub = new McpHub(VERSION, media);
     const usage = new UsageLog();
     const onCall = (call: ModelCall) => {
       usage.record(call);
@@ -137,7 +164,7 @@ export function openHome(options: HomeOptions): Home {
       ...(options.codeLaunch && { launch: options.codeLaunch }),
     });
     if (options.mcp !== false) hub.reconcile(config.mcp?.servers);
-    let moqi = build(config, store, options, notify, agents, hub, code, onCall);
+    let moqi = build(config, store, options, notify, agents, hub, code, media, saveWeather, onCall);
     moqi.recoverCode(); // tasks a previous run left running were cut short
     let chain: Promise<unknown> = Promise.resolve();
     const serial = <T>(job: () => Promise<T>): Promise<T> => {
@@ -149,14 +176,14 @@ export function openHome(options: HomeOptions): Home {
     hub.watch(() => {
       void serial(async () => {
         await moqi.idle();
-        moqi = build(config, store, options, notify, agents, hub, code, onCall);
+        moqi = build(config, store, options, notify, agents, hub, code, media, saveWeather, onCall);
       });
     });
     const reconfigure = (next: Config) =>
       serial(async () => {
         await moqi.idle();
         if (options.mcp !== false) hub.reconcile(next.mcp?.servers);
-        moqi = build(next, store, options, notify, agents, hub, code, onCall);
+        moqi = build(next, store, options, notify, agents, hub, code, media, saveWeather, onCall);
         config = next;
       });
     reconfigureLater = (next) => reconfigure(next);
@@ -175,6 +202,7 @@ export function openHome(options: HomeOptions): Home {
       mcpStatus: () => hub.status(),
       code,
       usage,
+      media,
       close: () => {
         hub.stop();
         release();
@@ -194,6 +222,8 @@ function build(
   agents: AgentsPluginOptions | undefined,
   hub: McpHub,
   code: CodeRunner,
+  media: MediaStore,
+  saveWeather: (place: WeatherPlace) => void,
   onCall: (call: ModelCall) => void,
 ): Moqi {
   return new Moqi({
@@ -206,7 +236,7 @@ function build(
       }),
     }),
     plugins: [
-      ...pluginsFrom(config, options.fetch),
+      ...pluginsFrom(config, options.fetch, process.platform, media, saveWeather),
       ...(agents ? [agentsPlugin(agents)] : []),
       hub.plugin(),
       ...(options.extraPlugins ?? []),
@@ -214,6 +244,7 @@ function build(
     ...(config.persona && { persona: config.persona }),
     briefingAt: config.briefingAt,
     code,
+    media,
     todoReviewAt: config.todoReviewAt,
     policy: { quietFrom: config.quiet.from, quietTo: config.quiet.to, dailyBudget: config.dailyBudget },
     ...(options.confirm && { confirm: options.confirm }),

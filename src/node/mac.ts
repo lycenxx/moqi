@@ -30,6 +30,8 @@ export const runCommand: Exec = (file, args, options = {}) =>
   });
 
 export interface MacOptions {
+  /** Keeps a screenshot so the console can show it under the answer. */
+  readonly media?: { save(bytes: Uint8Array): string };
   /** Shortcuts the user picked in Settings; only these become tools. */
   readonly shortcuts: readonly string[];
   readonly exec?: Exec;
@@ -85,7 +87,14 @@ export function macPlugin(options: MacOptions): Plugin {
       run: async () => {
         const file = join(desktop, `moqi-截图-${stamp(now())}.png`);
         await exec("screencapture", ["-x", file]);
-        return `截好了：${file}`;
+        const headline = `截好了：${file}`;
+        let id: string | undefined;
+        try {
+          id = options.media?.save(readFileSync(file));
+        } catch {
+          id = undefined; // no permission to record the screen leaves no file: the words are enough
+        }
+        return id ? { value: headline, headline, images: [id] } : headline;
       },
     }),
     defineTool({

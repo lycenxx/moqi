@@ -38,6 +38,8 @@ export interface OfferRecord {
   reason?: string;
   dropped?: boolean;
   verdict?: Verdict;
+  /** When the user reacted. */
+  decidedAt?: number;
 }
 
 export interface Study {
@@ -59,6 +61,10 @@ export interface CodeTaskState {
   readonly stat?: string;
   readonly error?: string;
   readonly finishedAt?: number;
+  /** The commit moqi made, when there were changes. */
+  readonly head?: string;
+  /** The branch it was merged into. */
+  readonly into?: string;
 }
 
 export interface Thought {
@@ -95,6 +101,8 @@ export class State {
   readonly kinds = new Map<string, KindStats>();
   readonly trust = new Map<string, Trust>();
   readonly toolPolicies = new Map<string, ToolPolicy>();
+  /** Sites the user allowed for good ("以后都允许"); opening and browsing there is not asked. */
+  readonly sites = new Set<string>();
   readonly watches = new Map<string, Watch>();
   readonly todos = new Map<string, Todo>();
   readonly codeTasks = new Map<string, CodeTaskState>();
@@ -231,6 +239,7 @@ export class State {
         const r = this.offers.get(e.offerId);
         if (!r || r.verdict) break;
         r.verdict = e.verdict;
+        r.decidedAt = e.at;
         this.feedbackCount++;
         const k = this.kind(r.offer.kind);
         if (e.verdict === "accepted") {
@@ -264,6 +273,12 @@ export class State {
         break;
       case "tool.policy":
         this.toolPolicies.set(e.tool, e.policy);
+        break;
+      case "site.remembered":
+        this.sites.add(e.host);
+        break;
+      case "site.forgotten":
+        this.sites.delete(e.host);
         break;
       case "watch.created":
         this.watches.set(e.watch.id, e.watch);
@@ -334,14 +349,19 @@ export class State {
           files: e.files,
           stat: e.stat,
           ...(e.error && { error: e.error }),
+          ...(e.head && { head: e.head }),
           finishedAt: e.at,
         });
         break;
       }
-      case "code.merged":
+      case "code.merged": {
+        const t = this.codeTasks.get(e.taskId);
+        if (t) this.codeTasks.set(e.taskId, { ...t, status: "merged", ...(e.into && { into: e.into }) });
+        break;
+      }
       case "code.discarded": {
         const t = this.codeTasks.get(e.taskId);
-        if (t) this.codeTasks.set(e.taskId, { ...t, status: e.type === "code.merged" ? "merged" : "discarded" });
+        if (t) this.codeTasks.set(e.taskId, { ...t, status: "discarded" });
         break;
       }
       case "todo.reminded": {

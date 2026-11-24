@@ -36,6 +36,30 @@ describe("trust, earned one kind of action at a time", () => {
     expect(moqi.state.watches.size).toBe(4);
   });
 
+  it("lists the write tools the user may let run without asking, and sets them both ways", async () => {
+    const { moqi, asked } = harness();
+    const names = moqi.ordinaryTools().map((t) => t.name);
+    expect(names).toEqual(expect.arrayContaining(["watch_create", "watch_cancel", "todo_remove"]));
+    expect(names).not.toContain("forget"); // capped at asking
+    expect(names).not.toContain("todo_add"); // never asks
+    expect(names).not.toContain("set_level"); // hidden
+    expect(moqi.ordinaryTools().find((t) => t.name === "watch_create")).toEqual({
+      name: "watch_create",
+      source: "moqi",
+      level: "ask",
+    });
+
+    expect(moqi.setToolLevel("watch_create", "auto")).toBe("以后 watch_create 直接办，办完告诉你");
+    expect(moqi.ordinaryTools().find((t) => t.name === "watch_create")?.level).toBe("auto");
+    await moqi.callTool("watch_create", reminder(1), { byUser: true });
+    expect(asked).toEqual([]);
+
+    expect(moqi.setToolLevel("watch_create", "ask")).toBe("watch_create 以后先问你");
+    await moqi.callTool("watch_create", reminder(2), { byUser: true });
+    expect(asked).toHaveLength(1);
+    expect(() => moqi.setToolLevel("forget", "auto")).toThrow("forget 不是能在这里设置的工具");
+  });
+
   it("goes back to asking after a single refusal", async () => {
     let yes = true;
     const { moqi, asked } = harness({ answer: () => yes });

@@ -1,20 +1,22 @@
 import { AGENT, chatTurn, learn } from "./agent.js";
-import { guarded, needsConfirmation, promotionDue } from "./autonomy.js";
+import { guarded, levelOf, needsConfirmation, promotionDue, rank } from "./autonomy.js";
 import { type Briefing, composeBriefing } from "./briefing.js";
 import { type CodeResult, type CodeRunner, codeOffer, codeTools } from "./code.js";
 import { normalize, type RememberInput, rememberEvents } from "./memory.js";
-import type { ChatModel } from "./model.js";
+import type { ChatModel, ImagePart } from "./model.js";
 import { actionPolicy, type OfferInput, type Plugin, type PluginContext, resultText, type Tool } from "./plugin.js";
 import { decide, defaultPolicy, inQuietHours, type Policy } from "./proactive.js";
 import { REFLECT, reflect } from "./reflect.js";
 import { findRoutines } from "./routines.js";
 import { dayKey, describeSchedule, minuteOfDay, nextRun, parseTime } from "./schedule.js";
-import { pageHost, type SiteGrant, siteDecision } from "./sites.js";
+import { hostOf, pageHost, type SiteGrant, siteDecision } from "./sites.js";
 import { State } from "./state.js";
 import { STUDY, studiedOn, study } from "./study.js";
 import { dueReminders, findRepeatedTodos, reminderOffer, reviewOffer, TODO, TODO_KIND } from "./todo.js";
 import { builtinTools, type Kernel } from "./tools.js";
 import {
+  type Answer,
+  type Choices,
   type Clock,
   type EventBody,
   type EventStore,
@@ -48,14 +50,19 @@ export interface MoqiOptions {
   readonly todoReviewAt?: string | null;
   /** Shows an offer: a system notification for "notify", a quiet entry for "feed". */
   readonly deliver?: (offer: Offer, surface: Surface) => void | Promise<void>;
-  /** Asks the user before an action that has not earned trust yet. `details`: exactly what a dangerous one does. Without it, such actions are refused. */
-  readonly confirm?: (question: string, details?: string) => Promise<boolean>;
+  /**
+   * Asks the user before an action that has not earned trust yet. `details`: exactly what a dangerous one does.
+   * `choices`: extra answers this question offers, e.g. "以后都允许" for a site. Without it, such actions are refused.
+   */
+  readonly confirm?: (question: string, details?: string, choices?: Choices) => Promise<Answer>;
   /** Think about the user on its own between conversations (needs a model). Default true. */
   readonly reflect?: boolean;
   /** Learn on its own while the user is away: lessons from feedback, notes from articles. Default true. */
   readonly study?: boolean;
   /** Runs coding tasks; absent: no coding agents. */
   readonly code?: CodeRunner;
+  /** Reads the images messages refer to, by media id. Without it, images are mentioned as "[图片]". */
+  readonly media?: { load(id: string): Promise<ImagePart | undefined> };
 }
 
 export interface TickReport {
@@ -130,8 +137,17 @@ export class Moqi {
     while (this.background.size > 0) await Promise.all([...this.background]);
   }
 
-  /** One conversation turn. `fromAgent`: another agent wrote it, so it counts as outside content. */
-  chat(text: string, signal?: AbortSignal, how?: { readonly fromAgent?: boolean }): Promise<string> {
+  /** An image a message refers to, for the model; undefined when it is gone or there is no media. */
+  async loadImage(id: string): Promise<ImagePart | undefined> {
+    return (await this.options.media?.load(id)) ?? undefined;
+  }
+
+  /** One conversation turn. `fromAgent`: another agent wrote it, so it counts as outside content. `images`: media ids. */
+  chat(
+    text: string,
+    signal?: AbortSignal,
+    how?: { readonly fromAgent?: boolean; readonly images?: readonly string[] },
+  ): Promise<string> {
     return chatTurn(this, text, signal, how);
   }
 
@@ -172,6 +188,58 @@ export class Moqi {
     if (policy === "auto") return `以后 ${name} 直接办；这一轮读过外部内容时仍会先问`;
     if (policy === "normal") return `${name} 按普通动作处理了`;
     return `${name} 每次都会先问你`;
+  }
+
+  /** The user's decision for every dangerous tool of one source at once, the same as deciding each in turn. */
+  setSourcePolicy(source: string, policy: "ask" | "auto"): string {
+    const tools = this.dangerousTools().filter((t) => t.source === source);
+    if (tools.length === 0) throw new Error(`${source} 没有会改动东西的工具`);
+    for (const t of tools) this.emit({ type: "tool.policy", tool: t.name, policy });
+    return policy === "auto"
+      ? `把 ${source} 的 ${tools.length} 个工具都放开了；这一轮读过外部内容时仍会先问`
+      : `${source} 的 ${tools.length} 个工具以后每次都先问`;
+  }
+
+  /** Sites the user allowed for good, in order. */
+  rememberedSites(): string[] {
+    return [...this.state.sites].sort();
+  }
+
+  /** The user's own decision to stop allowing a site for good. False when it was not remembered. */
+  forgetSite(host: string): boolean {
+    if (!this.state.sites.has(host)) return false;
+    this.emit({ type: "site.forgotten", host });
+    return true;
+  }
+
+  /** Write tools the user may let run without asking: visible, not dangerous, asked first, allowed higher. */
+  ordinaryTools(): { name: string; source: string; level: "ask" | "auto" }[] {
+    return [...this.tools.values()]
+      .filter((t) => this.isOrdinary(t))
+      .map((t) => ({
+        name: t.name,
+        source: this.sourceOf(t.name),
+        level: rank(levelOf(this.state, t.name, actionPolicy(t))) <= rank("suggest") ? "ask" : "auto",
+      }));
+  }
+
+  /** The user's own switch for one ordinary tool, the same level the trust ladder raises. */
+  setToolLevel(name: string, level: "ask" | "auto"): string {
+    const tool = this.tools.get(name);
+    if (!tool || !this.isOrdinary(tool)) throw new Error(`${name} 不是能在这里设置的工具`);
+    this.emit({ type: "level.changed", kind: name, level: level === "ask" ? "suggest" : actionPolicy(tool).cap });
+    return level === "ask" ? `${name} 以后先问你` : `以后 ${name} 直接办，办完告诉你`;
+  }
+
+  private isOrdinary(tool: Tool): boolean {
+    const p = actionPolicy(tool);
+    return (
+      tool.effect === "write" &&
+      tool.hidden !== true &&
+      tool.danger !== true &&
+      rank(p.start) <= rank("suggest") &&
+      rank(p.cap) > rank("suggest")
+    );
   }
 
   /** Read tools a watch may use, e.g. for reflection to suggest one. */
@@ -239,6 +307,7 @@ export class Moqi {
       files: result.files,
       stat: result.stat,
       ...(result.error && { error: result.error }),
+      ...(result.head && { head: result.head }),
     });
     void this.offer(
       codeOffer(t.task, result, this.options.code?.label(t.task.agent) ?? t.task.agent, this.clock.now()),
@@ -312,7 +381,14 @@ export class Moqi {
   async callTool(
     name: string,
     args: Record<string, unknown>,
-    how: { byUser: boolean; preApproved?: boolean; tainted?: boolean; sites?: SiteGrant },
+    how: {
+      byUser: boolean;
+      preApproved?: boolean;
+      confirmed?: boolean;
+      tainted?: boolean;
+      sites?: SiteGrant;
+      images?: string[]; // where images a tool brings back are collected
+    },
   ): Promise<string> {
     const tool = this.tools.get(name);
     if (!tool) return `没有工具 ${name}`;
@@ -324,25 +400,35 @@ export class Moqi {
     if (problem) return `参数不对：${problem}`; // back to the model; never ask the user to approve a broken call
     const policy = actionPolicy(tool);
     const guard = guarded(this.state, name, policy);
-    // Within a turn, a site the user agreed to may be browsed without asking again (only while the user
-    // has not decided about this tool in Settings).
+    const chosen = this.state.toolPolicies.get(name) ?? "ask";
+    // Within a turn, a site the user agreed to (in this turn or for good) may be browsed without asking again:
+    // while the tool is asked about, and, once the user unlocked it, after the turn read outside content.
+    const bySite = guard && (chosen === "ask" || (chosen === "auto" && how.tainted === true));
     const site =
-      guard && tool.site && how.sites && (this.state.toolPolicies.get(name) ?? "ask") === "ask"
-        ? siteDecision(tool.site, args, how.sites)
+      bySite && tool.site && how.sites
+        ? siteDecision(tool.site, args, {
+            granted: new Set([...how.sites.granted, ...this.state.sites]),
+            current: how.sites.current,
+          })
         : undefined;
     if (site && "host" in site) {
-      const approved = await this.ask(
+      const answer = await this.ask(
         `要我打开 ${site.host} 吗？`,
         `这一轮里在 ${site.host} 上打开页面、点击、翻页不再问；输入文字、上传、执行脚本仍会问。\n\n${site.url}`,
+        { always: "以后都允许" },
       );
-      this.emit({ type: "approval", kind: name, approved });
-      if (!approved) return "用户没有同意，这一步没做";
+      this.emit({ type: "approval", kind: name, approved: answer !== false });
+      if (answer === false) return "用户没有同意，这一步没做";
       how.sites?.granted.add(site.host);
+      if (answer === "always" && !this.state.sites.has(site.host))
+        this.emit({ type: "site.remembered", host: site.host });
     } else if (!site) {
       // A dangerous action is confirmed with exactly what it does, even when an offer was accepted:
-      // the offer's words are the model's and may not match its action.
-      const offered = how.preApproved === true && guard;
-      const preApproved = how.preApproved === true && !guard;
+      // the offer's words are the model's and may not match its action. `confirmed`: the user tapped this
+      // very action on a card moqi itself made, so there is nothing left to show them.
+      const confirmed = how.preApproved === true && how.confirmed === true;
+      const offered = how.preApproved === true && guard && !confirmed;
+      const preApproved = how.preApproved === true && (!guard || confirmed);
       const tainted = how.tainted === true || offered;
       const asked = !preApproved && needsConfirmation(this.state, name, policy, tainted);
       if (asked || preApproved) {
@@ -360,14 +446,22 @@ export class Moqi {
         const details = tool.danger
           ? `${dangerDetails(args, guard ? reason : undefined)}${more ? `\n\n${more}` : ""}`
           : undefined;
-        const approved = preApproved || (await this.ask(question, details));
+        const approved = preApproved || (await this.ask(question, details)) !== false;
         if (tool.effect === "write") this.emit({ type: "approval", kind: name, approved });
         if (!approved) return "用户没有同意，这一步没做";
+      }
+      // An unlocked tool opening a site the user's own words led to, before any outside content: that site
+      // counts as granted for the rest of the turn, so reading its page does not make every click ask.
+      if (guard && tool.site === "goto" && how.sites && chosen === "auto" && how.tainted !== true) {
+        const host = typeof args.url === "string" ? hostOf(args.url) : undefined;
+        if (host) how.sites.granted.add(host);
       }
     }
     let text: string;
     try {
-      text = resultText(await tool.run(parsed.data, ctx));
+      const out = await tool.run(parsed.data, ctx);
+      text = resultText(out);
+      if (how.images && typeof out === "object" && out.images) how.images.push(...out.images);
       // Where the browser ended up decides whether the next move on the page needs asking. Any tool of the
       // browser may move it (typing Enter submits a form); a site tool that does not say where it is leaves
       // the page unknown, so the next move asks.
@@ -384,8 +478,9 @@ export class Moqi {
     return text;
   }
 
-  private async ask(question: string, details?: string): Promise<boolean> {
+  private async ask(question: string, details?: string, choices?: Choices): Promise<Answer> {
     if (!this.options.confirm) return false;
+    if (choices) return this.options.confirm(question, details, choices);
     return details === undefined ? this.options.confirm(question) : this.options.confirm(question, details);
   }
 
@@ -439,9 +534,25 @@ export class Moqi {
       return this.callTool("resolve_conflict", { ...offer.action.args, keep }, { byUser: true, preApproved: true });
     }
     if (verdict === "accepted" && offer.action)
-      return this.callTool(offer.action.tool, offer.action.args, { byUser: true, preApproved: true });
+      return this.callTool(offer.action.tool, offer.action.args, {
+        byUser: true,
+        preApproved: true,
+        ...(this.ownMerge(offer) && { confirmed: true }),
+      });
     if (verdict === "muted") return `以后不再提「${offer.kind}」这类事（/unmute ${offer.kind} 恢复）`;
     return "好";
+  }
+
+  /** moqi's own "done" card for a coding task, whose merge the user tapped: nothing about it came from a model. */
+  private ownMerge(offer: Offer): boolean {
+    const id = offer.action?.args.id;
+    const status = typeof id === "string" ? this.state.codeTasks.get(id)?.status : undefined;
+    return (
+      offer.kind === "code.done" &&
+      offer.action?.tool === "code_merge" &&
+      offer.about === id &&
+      (status === "done" || status === "failed")
+    );
   }
 
   unmute(kind: string): void {

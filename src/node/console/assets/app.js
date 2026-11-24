@@ -32,14 +32,29 @@ const PRESETS = {
 };
 const IDEA_LABEL = { serve: "帮你做", ask: "了解你", world: "看世界" };
 
+const EXAMPLES = [
+  "把下载文件夹里的 PDF 收进一个新文件夹",
+  "打开 news.ycombinator.com，挑 5 条翻成中文",
+  "明天上午十点提醒我交周报",
+];
+
+function greeting(now = new Date()) {
+  const hour = now.getHours();
+  if (hour >= 5 && hour < 11) return "早上好";
+  if (hour >= 11 && hour < 13) return "中午好";
+  if (hour >= 13 && hour < 18) return "下午好";
+  return "晚上好";
+}
+
 const ICONS = {
   trash: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6",
   x: "M18 6 6 18M6 6l12 12",
+  check: "M5 12l5 5L19 7",
 };
 
 let state = null;
 let view = sessionStorage.getItem("moqi.view") || "chat";
-let sending = null; // the text being sent, shown until moqi answers
+let sending = null; // { text, images } being sent, shown until moqi answers
 let lastMessages = "";
 let settingsLoaded = false;
 let weather = null; // { latitude, longitude, place }
@@ -54,7 +69,19 @@ let thoughtsKey = "";
 let memoryKey = "";
 let todosKey = "";
 let codeKey = "";
+let historyKey = "";
+let historyShown = 10;
 const drafts = new Map(); // offer id -> what the user has typed so far
+const MAX_IMAGES = 4;
+const MAX_EDGE = 2048;
+const MAX_BYTES = 2 * 1024 * 1024;
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+const NO_VISION = "当前模型看不了图，可以换成 deepseek-flash 这类能看图的模型";
+let attachments = []; // { preview, id?, error?, uploading }
+let visionAsked = null; // the one check in flight
+let checking = false; // while it runs, nothing is sent: the image would be left behind
+const pictures = new Map(); // media id -> Promise of a blob: URL
+let tested = null; // { baseURL, model, vision } of the last connection test
 
 /* Small helpers */
 
@@ -198,6 +225,154 @@ function scrollToEnd() {
   requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight }));
 }
 
+/** An image from moqi, fetched with the key and shown through a blob: URL. */
+function mediaUrl(id) {
+  if (!pictures.has(id))
+    pictures.set(
+      id,
+      fetch(`/api/media?id=${encodeURIComponent(id)}`, { headers: { "x-moqi-token": token } })
+        .then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.blob();
+        })
+        .then((b) => URL.createObjectURL(b)),
+    );
+  return pictures.get(id);
+}
+
+function picture(id, alt) {
+  const img = h("img", { alt });
+  const button = h("button", { type: "button", class: "pic", "aria-label": `放大看：${alt}` }, img);
+  button.addEventListener("click", () => openViewer(img.src, alt, button));
+  mediaUrl(id)
+    .then((url) => {
+      img.src = url;
+    })
+    .catch(() => {
+      button.classList.add("gone");
+      img.alt = `${alt}（找不到了）`;
+    });
+  return button;
+}
+
+function openViewer(src, alt, from) {
+  if (!src) return;
+  $("viewer-img").src = src;
+  $("viewer-img").alt = alt;
+  $("viewer").addEventListener("close", () => from.focus(), { once: true });
+  $("viewer").showModal();
+}
+$("viewer").addEventListener("click", (e) => {
+  if (e.target === $("viewer")) $("viewer").close();
+});
+
+/** moqi's answer, from Markdown data to elements; text goes in as text and only http(s) links become links. */
+function renderAnswer(text) {
+  const parse = globalThis.moqiMarkdown?.parse;
+  const blocks = parse ? parse(text) : [{ t: "p", c: [{ t: "text", v: text }] }];
+  return h("div", { class: "md" }, blocks.map(blockEl));
+}
+
+function inlineEl(n) {
+  if (n.t === "text") return n.v;
+  if (n.t === "br") return h("br");
+  if (n.t === "code") return h("code", { text: n.v });
+  if (n.t === "b") return h("strong", {}, n.c.map(inlineEl));
+  if (n.t === "i") return h("em", {}, n.c.map(inlineEl));
+  if (n.t === "a" && /^https?:\/\//i.test(n.href))
+    return h("a", { href: n.href, target: "_blank", rel: "noopener noreferrer" }, n.c.map(inlineEl));
+  return n.c ? n.c.map(inlineEl) : "";
+}
+
+function blockEl(b) {
+  if (b.t === "p") return h("p", {}, b.c.map(inlineEl));
+  if (b.t === "h") return h(b.level === 1 ? "h3" : "h4", { class: "md-h" }, b.c.map(inlineEl));
+  if (b.t === "hr") return h("hr");
+  if (b.t === "quote") return h("blockquote", {}, b.blocks.map(blockEl));
+  if (b.t === "code") {
+    const copy = h("button", { type: "button", class: "copy", text: "复制" });
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(b.text);
+        toast("复制了");
+      } catch {
+        toast("复制不了，手动选中吧");
+      }
+    });
+    return h(
+      "div",
+      { class: "codeblock" },
+      h("div", { class: "code-head" }, h("span", { text: b.lang || "代码" }), copy),
+      h("pre", {}, h("code", { text: b.text })),
+    );
+  }
+  if (b.t === "ul" || b.t === "ol")
+    return h(
+      b.t,
+      b.t === "ol" && b.start !== 1 ? { start: String(b.start) } : {},
+      b.items.map((it) => h("li", {}, it.c.map(inlineEl), it.sub ? blockEl(it.sub) : null)),
+    );
+  if (b.t === "table")
+    return h(
+      "div",
+      { class: "table-wrap" },
+      h(
+        "table",
+        {},
+        h(
+          "thead",
+          {},
+          h(
+            "tr",
+            {},
+            b.head.map((c, i) => h("th", { class: `al-${b.align[i] || "left"}` }, c.map(inlineEl))),
+          ),
+        ),
+        h(
+          "tbody",
+          {},
+          b.rows.map((row) =>
+            h(
+              "tr",
+              {},
+              row.map((c, i) => h("td", { class: `al-${b.align[i] || "left"}` }, c.map(inlineEl))),
+            ),
+          ),
+        ),
+      ),
+    );
+  if (b.t === "cards")
+    return h(
+      "div",
+      { class: "link-cards" },
+      b.links
+        .filter((l) => /^https?:\/\//i.test(l.href))
+        .map((l) =>
+          h(
+            "a",
+            { class: "link-card", href: l.href, target: "_blank", rel: "noopener noreferrer" },
+            h("span", { class: "link-title", text: l.text }),
+            h("span", { class: "link-host", text: l.host }),
+          ),
+        ),
+    );
+  return null;
+}
+
+function messageEl(m) {
+  const user = m.role === "user";
+  const ids = m.images || [];
+  const pics = ids.length
+    ? h(
+        "div",
+        { class: "pics" },
+        ids.map((id, i) => picture(id, user ? `你发的图片 ${i + 1}` : `moqi 带回的图片 ${i + 1}`)),
+      )
+    : null;
+  if (user) return h("div", { class: "msg user" }, pics, m.text ? h("div", { class: "msg-text", text: m.text }) : null);
+  return h("div", { class: "msg moqi" }, renderAnswer(m.text), pics);
+}
+
 function renderChat() {
   const list = $("messages");
   const key = JSON.stringify([state.messages.length, state.messages.at(-1)?.at, sending, state.configured]);
@@ -219,26 +394,40 @@ function renderChat() {
     list.append(
       h(
         "div",
-        { class: "empty" },
-        h("strong", { text: "跟 moqi 说说你自己" }),
-        "住在哪、做什么、在忙什么。它会慢慢记住，在合适的时候先开口。",
+        { class: "hello" },
+        h("strong", { class: "hello-title", text: greeting() }),
+        h("p", { text: "跟 moqi 说说你自己，或者让它替你做点事。" }),
+        h(
+          "div",
+          { class: "examples" },
+          EXAMPLES.map((text) =>
+            h("button", {
+              type: "button",
+              class: "example",
+              text,
+              onclick: () => {
+                input.value = text;
+                autosize();
+                input.focus();
+              },
+            }),
+          ),
+        ),
       ),
     );
   }
-  for (const m of state.messages) {
-    list.append(h("div", { class: `msg ${m.role === "user" ? "user" : "moqi"}`, text: m.text }));
-  }
+  for (const m of state.messages) list.append(messageEl(m));
   if (sending !== null) {
     const last = state.messages.at(-1);
-    if (!(last && last.role === "user" && last.text === sending))
-      list.append(h("div", { class: "msg user", text: sending }));
+    if (!(last && last.role === "user" && last.text === sending.text))
+      list.append(messageEl({ role: "user", text: sending.text, images: sending.images }));
     list.append(
       h("div", { class: "msg moqi thinking", text: "moqi 在想" }),
       h("button", { type: "button", class: "btn ghost stop-chat", text: "停止", onclick: stopChat }),
     );
   }
   $("input").disabled = !state.configured;
-  $("send").disabled = !state.configured || sending !== null;
+  renderAttach();
   scrollToEnd();
 }
 
@@ -250,23 +439,26 @@ function renderAsk() {
   $("ask-details").textContent = q.details || "";
   $("ask-details").hidden = !q.details;
   $("ask").dataset.id = q.id;
+  $("ask-always").hidden = !q.always;
+  $("ask-always").textContent = q.always || "";
   if (view !== "chat" && toldAbout !== q.id) {
     toldAbout = q.id;
     toast("moqi 有件事想问你，在「对话」里");
   }
 }
 
-async function answer(yes) {
+async function answer(yes, always = false) {
   const id = $("ask").dataset.id;
   $("ask").hidden = true;
   try {
-    await api("POST", "/api/confirm", { id, yes });
+    await api("POST", "/api/confirm", { id, yes, always });
   } catch (error) {
     toast(error.message);
   }
   refresh();
 }
 $("ask-yes").addEventListener("click", () => answer(true));
+$("ask-always").addEventListener("click", () => answer(true, true));
 $("ask-no").addEventListener("click", () => answer(false));
 
 function renderCode() {
@@ -323,7 +515,11 @@ function renderFeed() {
     if (state.offers.length === 0) {
       list.append(h("p", { class: "none", text: "现在没有需要你的事。moqi 有话想说时，会先放在这里。" }));
     }
-    for (const o of state.offers) list.append(offerCard(o));
+    for (const o of state.offers) {
+      const card = offerCard(o);
+      card.id = `offer-${o.id}`;
+      list.append(card);
+    }
     for (const id of drafts.keys()) if (!state.offers.some((o) => o.id === id)) drafts.delete(id);
     const box = typing && list.querySelector(`textarea[data-offer="${CSS.escape(typing)}"]`);
     if (box) {
@@ -332,6 +528,7 @@ function renderFeed() {
     }
   }
   refreshTimes(list);
+  renderHistory();
   renderThoughts();
 }
 
@@ -342,6 +539,115 @@ function timeOf(at) {
 /** Relative times ("3 分钟前") move on without rebuilding anything. */
 function refreshTimes(root) {
   for (const el of root.querySelectorAll("[data-at]")) el.textContent = when(Number(el.dataset.at));
+}
+
+const hostOf = (url) => {
+  try {
+    return new URL(url).host.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+};
+
+/** Shows or hides a coding task's changes under its card. */
+function diffToggle(taskId, changes) {
+  return async (e) => {
+    const button = e.currentTarget;
+    if (!changes.hidden) {
+      changes.hidden = true;
+      button.textContent = "看改动";
+      return;
+    }
+    button.disabled = true;
+    try {
+      const { diff } = await api("GET", `/api/code/diff?id=${encodeURIComponent(taskId)}`);
+      changes.textContent = diff || "（没有改动）";
+      changes.hidden = false;
+      button.textContent = "收起改动";
+    } catch (error) {
+      toast(error.message);
+    }
+    button.disabled = false;
+  };
+}
+
+function seenCard(o) {
+  const links = o.links.filter((l) => /^https?:\/\//i.test(l.url));
+  const changes = h("pre", { class: "ask-details", hidden: true });
+  const good = /^(已合并|好|有用|完成了|回答了)/.test(o.outcome);
+  return h(
+    "article",
+    { class: "card seen", id: `offer-${o.id}` },
+    h(
+      "div",
+      { class: "card-head" },
+      h("h3", { class: "card-title", text: o.title }),
+      h("span", { class: "card-time", "data-at": String(o.at), text: when(o.at) }),
+    ),
+    o.body ? h("p", { class: "card-body", text: o.body }) : null,
+    links.length
+      ? h(
+          "div",
+          { class: "link-cards" },
+          links.map((l) =>
+            h(
+              "a",
+              { class: "link-card", href: l.url, target: "_blank", rel: "noopener noreferrer" },
+              h("span", { class: "link-title", text: l.title }),
+              h("span", { class: "link-host", text: hostOf(l.url) }),
+            ),
+          ),
+        )
+      : null,
+    changes,
+    h(
+      "div",
+      { class: "actions" },
+      h(
+        "span",
+        { class: `outcome${good ? " good" : ""}` },
+        good ? icon("check") : null,
+        `${o.outcome} · `,
+        timeOf(o.decidedAt),
+      ),
+      h("span", { class: "spacer" }),
+      o.canDiff
+        ? h("button", { type: "button", class: "btn", text: "看改动", onclick: diffToggle(o.taskId, changes) })
+        : null,
+    ),
+  );
+}
+
+function renderHistory() {
+  const items = state.history || [];
+  $("history-head").hidden = items.length === 0;
+  $("history-count").textContent = `最近 30 天 · ${items.length} 条`;
+  const key = JSON.stringify([items, historyShown]);
+  if (key !== historyKey) {
+    historyKey = key;
+    $("history").replaceChildren(...items.slice(0, historyShown).map(seenCard));
+  }
+  $("history-more").hidden = items.length <= historyShown;
+  refreshTimes($("history"));
+}
+$("history-more").addEventListener("click", () => {
+  historyShown += 20;
+  renderHistory();
+});
+
+/** Scrolls to the card an idea became, opening more of "看过的" when it is further down. */
+function jumpTo(offerId) {
+  const index = (state.history || []).findIndex((o) => o.id === offerId);
+  if (index >= historyShown) {
+    historyShown = index + 1;
+    renderHistory();
+  }
+  const card = document.getElementById(`offer-${offerId}`);
+  if (!card) return;
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  card.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "center" });
+  card.classList.add("flash");
+  setTimeout(() => card.classList.remove("flash"), 2000);
 }
 
 function offerCard(o) {
@@ -375,24 +681,6 @@ function offerCard(o) {
   if (o.kind === "code.done") {
     const task = (state.code || []).find((t) => t.id === o.taskId);
     const changes = h("pre", { class: "ask-details", hidden: true });
-    const look = async (e) => {
-      const button = e.currentTarget;
-      if (!changes.hidden) {
-        changes.hidden = true;
-        button.textContent = "看改动";
-        return;
-      }
-      button.disabled = true;
-      try {
-        const { diff } = await api("GET", `/api/code/diff?id=${encodeURIComponent(o.taskId)}`);
-        changes.textContent = diff || "（没有改动）";
-        changes.hidden = false;
-        button.textContent = "收起改动";
-      } catch (error) {
-        toast(error.message);
-      }
-      button.disabled = false;
-    };
     const changed = !!task && task.files > 0;
     const open = !!task && (task.status === "done" || task.status === "failed");
     return h(
@@ -405,9 +693,16 @@ function offerCard(o) {
         "div",
         { class: "actions" },
         changed && open
-          ? h("button", { type: "button", class: "btn primary", text: "合并", onclick: respond("accepted") })
+          ? h("button", {
+              type: "button",
+              class: "btn primary",
+              text: task.into ? `合并到 ${task.into}` : "合并",
+              onclick: respond("accepted"),
+            })
           : null,
-        changed ? h("button", { type: "button", class: "btn", text: "看改动", onclick: look }) : null,
+        changed
+          ? h("button", { type: "button", class: "btn", text: "看改动", onclick: diffToggle(o.taskId, changes) })
+          : null,
         h("span", { class: "spacer" }),
         open
           ? removeButton("丢弃这个任务的分支", "确定丢弃", () => api("POST", "/api/code/discard", { id: o.taskId }))
@@ -498,7 +793,7 @@ function renderThoughts() {
   else if (last) status.textContent = `上次是${when(last.at)}。每两小时、以及每次聊完，它都会自己想一想。`;
   else status.textContent = "还没想过。每两小时、以及每次聊完，它都会自己想一想。";
   const list = $("thoughts");
-  const key = JSON.stringify(state.thoughts);
+  const key = JSON.stringify([state.thoughts, state.offers.map((o) => o.id), (state.history || []).map((o) => o.id)]);
   if (key === thoughtsKey) return refreshTimes(list);
   thoughtsKey = key;
   list.replaceChildren();
@@ -525,16 +820,17 @@ function renderThoughts() {
       );
     }
     for (const idea of t.ideas) {
+      const known =
+        idea.offerId &&
+        (state.offers.some((o) => o.id === idea.offerId) || (state.history || []).some((o) => o.id === idea.offerId));
+      const title = known
+        ? h("button", { type: "button", class: "linkish", text: idea.title, onclick: () => jumpTo(idea.offerId) })
+        : idea.title;
       list.append(
         h(
           "div",
           { class: "thought" },
-          h(
-            "p",
-            { class: "item-text" },
-            h("span", { class: "tag", text: IDEA_LABEL[idea.type] || idea.type }),
-            idea.title,
-          ),
+          h("p", { class: "item-text" }, h("span", { class: "tag", text: IDEA_LABEL[idea.type] || idea.type }), title),
           h("p", { class: "item-meta" }, timeOf(t.at), ` · ${idea.outcome}`),
         ),
       );
@@ -841,23 +1137,166 @@ input.addEventListener("keydown", (e) => {
 $("composer").addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = input.value.trim();
-  if (!text || sending !== null) return;
-  sending = text;
+  const ready = attachments.filter((a) => a.id);
+  if (sending !== null || checking || attachments.some((a) => a.uploading) || (!text && ready.length === 0)) return;
+  sending = { text, images: ready.map((a) => a.id) };
+  const sent = attachments;
+  attachments = [];
   input.value = "";
   autosize();
   render();
   try {
-    const done = await api("POST", "/api/chat", { text });
+    const done = await api("POST", "/api/chat", {
+      text,
+      ...(sending.images.length > 0 && { images: sending.images }),
+    });
     if (done.stopped) {
       toast("已停止");
       if (!input.value) input.value = text;
-    }
+      attachments = sent; // kept, to send again
+    } else for (const a of sent) URL.revokeObjectURL(a.preview);
   } catch (error) {
     toast(error.message);
     if (!input.value) input.value = text;
+    attachments = sent; // kept, to send again
   }
   sending = null;
   await refresh();
+});
+
+async function shrink(file) {
+  if (file.type === "image/gif") {
+    if (file.size > MAX_BYTES) throw new Error("GIF 太大了，最多 2 MB");
+    return file;
+  }
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+  if (scale === 1 && file.size <= MAX_BYTES) {
+    bitmap.close();
+    return file;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+  if (!blob) throw new Error("这张图处理不了");
+  return blob;
+}
+
+async function upload(blob) {
+  const res = await fetch("/api/media", {
+    method: "POST",
+    headers: { "x-moqi-token": token, "content-type": blob.type || "application/octet-stream" },
+    body: blob,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `上传失败（HTTP ${res.status}）`);
+  return data.id;
+}
+
+/** Whether the model can see images; asks it once when nobody knows yet. */
+async function canSee() {
+  if (typeof state?.vision === "boolean") return state.vision;
+  $("attach-status").textContent = "正在确认模型能不能看图…";
+  checking = true;
+  renderAttach();
+  visionAsked ??= api("POST", "/api/model/vision", {})
+    .then((r) => r.vision)
+    .finally(() => {
+      visionAsked = null;
+    });
+  try {
+    state.vision = await visionAsked;
+    return state.vision;
+  } finally {
+    $("attach-status").textContent = "";
+    checking = false;
+    renderAttach();
+  }
+}
+
+async function addImages(files) {
+  const images = [...files].filter((f) => IMAGE_TYPES.includes(f.type));
+  if (images.length === 0) return;
+  if (!state?.configured) return toast("先给 moqi 接一个模型");
+  let ok = false;
+  try {
+    ok = await canSee();
+  } catch (error) {
+    return toast(error.message);
+  }
+  renderAttach();
+  if (!ok) return toast(NO_VISION);
+  for (const file of images) {
+    if (attachments.length >= MAX_IMAGES) {
+      toast(`一条消息最多 ${MAX_IMAGES} 张图片`);
+      break;
+    }
+    const a = { preview: URL.createObjectURL(file), uploading: true };
+    attachments.push(a);
+    renderAttach();
+    try {
+      a.id = await upload(await shrink(file));
+    } catch (error) {
+      a.error = error.message;
+      toast(`有一张图片没传上：${error.message}`);
+    }
+    a.uploading = false;
+    renderAttach();
+  }
+}
+
+function renderAttach() {
+  const strip = $("attachments");
+  strip.replaceChildren();
+  strip.hidden = attachments.length === 0;
+  for (const a of attachments) {
+    const remove = h("button", { type: "button", class: "thumb-remove", "aria-label": "移除这张图片" }, icon("x"));
+    remove.addEventListener("click", () => {
+      URL.revokeObjectURL(a.preview);
+      attachments = attachments.filter((x) => x !== a);
+      renderAttach();
+    });
+    const cls = `thumb${a.error ? " bad" : ""}${a.uploading ? " busy" : ""}`;
+    strip.append(
+      h(
+        "div",
+        { class: cls, title: a.error || "" },
+        h("img", { src: a.preview, alt: a.error ? `没传上的图片：${a.error}` : "要发的图片" }),
+        remove,
+      ),
+    );
+  }
+  const blocked = state?.vision === false;
+  $("attach").setAttribute("aria-disabled", String(blocked || !state?.configured));
+  $("attach").title = blocked ? NO_VISION : "添加图片";
+  $("send").disabled = !state?.configured || sending !== null || checking || attachments.some((a) => a.uploading);
+}
+
+$("attach").addEventListener("click", () => {
+  if (!state?.configured) return toast("先给 moqi 接一个模型");
+  if (state.vision === false) return toast(NO_VISION);
+  $("file").click();
+});
+$("file").addEventListener("change", () => {
+  addImages($("file").files);
+  $("file").value = "";
+});
+input.addEventListener("paste", (e) => {
+  const files = [...(e.clipboardData?.files ?? [])];
+  if (!files.some((f) => f.type.startsWith("image/"))) return;
+  e.preventDefault();
+  addImages(files);
+});
+$("view-chat").addEventListener("dragover", (e) => {
+  if ([...(e.dataTransfer?.items ?? [])].some((i) => i.kind === "file")) e.preventDefault();
+});
+$("view-chat").addEventListener("drop", (e) => {
+  if (!e.dataTransfer?.files.length) return;
+  e.preventDefault();
+  addImages(e.dataTransfer.files);
 });
 
 /* Settings */
@@ -1110,8 +1549,12 @@ $("m-test").addEventListener("click", async (e) => {
   try {
     const r = await api("POST", "/api/model/test", { model: modelInput() });
     const secs = (r.ms / 1000).toFixed(1);
-    if (r.ok) setResult(out, r.reply ? `连上了（${secs} 秒）：${r.reply}` : `连上了（${secs} 秒）`, "ok");
-    else setResult(out, `连不上：${r.error}`, "bad");
+    if (r.ok) {
+      const m = modelInput();
+      tested = typeof r.vision === "boolean" ? { baseURL: m.baseURL, model: m.model, vision: r.vision } : null;
+      const sees = r.vision === true ? "，能看图" : r.vision === false ? "，看不了图" : "，没测出能不能看图";
+      setResult(out, r.reply ? `连上了（${secs} 秒${sees}）：${r.reply}` : `连上了（${secs} 秒${sees}）`, "ok");
+    } else setResult(out, `连不上：${r.error}`, "bad");
   } catch (error) {
     setResult(out, error.message, "bad");
   }
@@ -1206,42 +1649,147 @@ const POLICY_LABEL = { ask: "每次都问", auto: "放开（读过外部内容�
 async function loadDangerTools() {
   const list = $("danger-tools");
   try {
-    const { tools } = await api("GET", "/api/tools");
+    const { tools, ordinary, sites } = await api("GET", "/api/tools");
     list.replaceChildren();
     if (tools.length === 0) list.append(h("p", { class: "none", text: "现在没有会改动东西的外来工具。" }));
-    for (const t of tools) {
-      const select = h(
-        "select",
-        { class: "policy", "aria-label": `${t.name} 怎么处理` },
-        Object.entries(POLICY_LABEL).map(([value, text]) => h("option", { value, text })),
-      );
-      select.value = t.policy;
-      select.addEventListener("change", async () => {
-        select.disabled = true;
-        try {
-          toast((await api("POST", "/api/tool-policy", { tool: t.name, policy: select.value })).message);
-        } catch (error) {
-          toast(error.message);
-          select.value = t.policy;
-        }
-        select.disabled = false;
-      });
-      list.append(
-        h(
-          "div",
-          { class: "item" },
-          h(
-            "div",
-            { class: "item-main" },
-            h("p", { class: "item-text", text: t.name }),
-            h("p", { class: "item-meta", text: `来自 ${t.source}` }),
-          ),
-          select,
-        ),
-      );
+    // Grouped by where the tools come from; a group of several can be decided all at once.
+    const groups = new Map();
+    for (const t of tools) groups.set(t.source, [...(groups.get(t.source) || []), t]);
+    for (const [source, group] of groups) {
+      if (group.length > 1) list.append(sourceHead(source, group));
+      for (const t of group) list.append(toolRow(t));
     }
+    renderOrdinary(ordinary);
+    renderSites(sites);
   } catch (error) {
     list.replaceChildren(h("p", { class: "none", text: error.message }));
+  }
+}
+
+function toolRow(t) {
+  const select = h(
+    "select",
+    { class: "policy", "aria-label": `${t.name} 怎么处理` },
+    Object.entries(POLICY_LABEL).map(([value, text]) => h("option", { value, text })),
+  );
+  select.value = t.policy;
+  select.addEventListener("change", async () => {
+    select.disabled = true;
+    try {
+      toast((await api("POST", "/api/tool-policy", { tool: t.name, policy: select.value })).message);
+    } catch (error) {
+      toast(error.message);
+      select.value = t.policy;
+    }
+    select.disabled = false;
+  });
+  return h(
+    "div",
+    { class: "item" },
+    h(
+      "div",
+      { class: "item-main" },
+      h("p", { class: "item-text", text: t.name }),
+      h("p", { class: "item-meta", text: `来自 ${t.source}` }),
+    ),
+    select,
+  );
+}
+
+/** One source's tools decided together. Unlocking them all takes a second tap. */
+function sourceHead(source, group) {
+  const setAll = async (policy, button) => {
+    button.disabled = true;
+    try {
+      toast((await api("POST", "/api/tool-policy/source", { source, policy })).message);
+    } catch (error) {
+      toast(error.message);
+    }
+    loadDangerTools();
+  };
+  const unlock = h("button", { type: "button", class: "btn", text: "全部放开" });
+  let armed = 0;
+  unlock.addEventListener("click", () => {
+    if (armed) return setAll("auto", unlock);
+    unlock.textContent = "确定全部放开";
+    unlock.classList.add("primary");
+    armed = setTimeout(() => {
+      armed = 0;
+      unlock.textContent = "全部放开";
+      unlock.classList.remove("primary");
+    }, 4000);
+  });
+  const lock = h("button", { type: "button", class: "btn", text: "全部每次都问" });
+  lock.addEventListener("click", () => setAll("ask", lock));
+  const allOpen = group.every((t) => t.policy === "auto");
+  const allAsk = group.every((t) => t.policy === "ask");
+  return h(
+    "div",
+    { class: "source-head" },
+    h("p", { class: "source-name", text: `${source} · ${group.length} 个工具` }),
+    h("span", { class: "spacer" }),
+    allOpen ? null : unlock,
+    allAsk ? null : lock,
+  );
+}
+
+const LEVEL_LABEL = { ask: "先问我", auto: "直接办，办完告诉你" };
+
+function renderOrdinary(tools) {
+  const list = $("ordinary-tools");
+  list.replaceChildren();
+  for (const t of tools) {
+    const select = h(
+      "select",
+      { class: "policy", "aria-label": `${t.label} 怎么处理` },
+      Object.entries(LEVEL_LABEL).map(([value, text]) => h("option", { value, text })),
+    );
+    select.value = t.level;
+    select.addEventListener("change", async () => {
+      select.disabled = true;
+      try {
+        toast((await api("POST", "/api/tool-level", { tool: t.name, level: select.value })).message);
+      } catch (error) {
+        toast(error.message);
+        select.value = t.level;
+      }
+      select.disabled = false;
+    });
+    list.append(
+      h(
+        "div",
+        { class: "item" },
+        h(
+          "div",
+          { class: "item-main" },
+          h("p", { class: "item-text", text: t.label }),
+          h("p", { class: "item-meta", text: `${t.name} · 来自 ${t.source}` }),
+        ),
+        select,
+      ),
+    );
+  }
+}
+
+function renderSites(sites) {
+  const list = $("sites");
+  list.replaceChildren();
+  if (sites.length === 0) return;
+  list.append(h("p", { class: "item-meta", text: "记住的网站：打开、点击、翻页不再问" }));
+  for (const host of sites) {
+    const remove = h("button", { type: "button", class: "btn", text: "移除", "aria-label": `移除 ${host}` });
+    remove.addEventListener("click", async () => {
+      remove.disabled = true;
+      try {
+        toast((await api("POST", "/api/site/forget", { host })).message);
+      } catch (error) {
+        toast(error.message);
+      }
+      loadDangerTools();
+    });
+    list.append(
+      h("div", { class: "item" }, h("div", { class: "item-main" }, h("p", { class: "item-text", text: host })), remove),
+    );
   }
 }
 
@@ -1513,7 +2061,9 @@ $("settings").addEventListener("submit", async (e) => {
     .filter(Boolean);
   if ($("f-on").checked && folders.length === 0) return setResult(out, "文件开着，但一个文件夹都没填", "bad");
   const config = {
-    model: m.baseURL ? m : null,
+    model: m.baseURL
+      ? { ...m, ...(tested && tested.baseURL === m.baseURL && tested.model === m.model && { vision: tested.vision }) }
+      : null,
     persona: $("persona").value.trim() || undefined,
     briefingAt: $("b-on").checked ? $("b-at").value : null,
     todoReviewAt: $("r-on").checked ? $("r-at").value : null,

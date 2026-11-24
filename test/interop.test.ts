@@ -120,6 +120,16 @@ describe("moqi uses MCP servers", () => {
     expect(h.mcpStatus()).toEqual([]);
   });
 
+  it("keeps the images a server returns and gives the model words instead", async () => {
+    const picture = join(import.meta.dirname, "fixtures", "picture-mcp.mjs");
+    const h = home({ mcp: { servers: { picture: { command: process.execPath, args: [picture] } } } });
+    await waitFor(() => h.mcpStatus().every((s) => s.state !== "starting"));
+    const shown: string[] = [];
+    expect(await h.moqi.callTool("picture__red", {}, { byUser: true, images: shown })).toBe("[图片，已显示给用户]");
+    expect(shown).toHaveLength(1);
+    expect(h.media.read(shown[0] as string)?.type).toBe("image/png");
+  });
+
   it("survives a server that stops reading what moqi writes", async () => {
     const deaf = join(import.meta.dirname, "fixtures", "deaf-mcp.mjs");
     const h = home({ mcp: { servers: { deaf: { command: process.execPath, args: [deaf] } } } });

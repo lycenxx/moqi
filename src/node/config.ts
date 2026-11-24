@@ -14,6 +14,7 @@ export const ConfigSchema = z.object({
       apiKey: z.string().optional(),
       noThink: z.boolean().optional(),
       effort: z.enum(["low", "medium", "high"]).optional(),
+      vision: z.boolean().optional(),
     })
     .optional(),
   persona: z.string().optional(),
@@ -85,7 +86,6 @@ export const TEMPLATE = {
   todoReviewAt: "21:00",
   quiet: { from: "22:30", to: "08:00" },
   dailyBudget: 3,
-  weather: { latitude: 39.9042, longitude: 116.4074, place: "北京" },
   calendar: { ics: "~/calendar.ics" },
   news: { feeds: NEWS_FEEDS.slice(0, 3) },
 };

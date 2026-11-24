@@ -1,7 +1,9 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { type Exec, listShortcuts, macPlugin, runCommand, shortcutName } from "../src/node/mac.js";
-import { harness } from "./helpers.js";
+import { harness, RED_PNG } from "./helpers.js";
 
 function fake() {
   const calls: { file: string; args: string[]; input?: string }[] = [];
@@ -91,5 +93,24 @@ describe("macOS", () => {
 
   it("survives a command that exits without reading its input", async () => {
     expect(await runCommand(process.execPath, ["-e", "process.exit(0)"], { input: "x".repeat(4_000_000) })).toBe("");
+  });
+
+  it("shows the screenshot it took under the answer", async () => {
+    const desktop = mkdtempSync(join(tmpdir(), "moqi-desk-"));
+    const saved: Uint8Array[] = [];
+    const exec: Exec = async (file, args) => {
+      if (file === "screencapture") writeFileSync(args[1] as string, RED_PNG);
+      return "";
+    };
+    const media = {
+      save: (bytes: Uint8Array) => {
+        saved.push(bytes);
+        return "m_0123456789abcdef";
+      },
+    };
+    const tool = macPlugin({ shortcuts: [], exec, desktop, media }).tools?.find((t) => t.name === "mac_screenshot");
+    const out = await tool?.run({}, { now: () => 0, state: undefined as never });
+    expect(out).toMatchObject({ images: ["m_0123456789abcdef"] });
+    expect(Buffer.from(saved[0] as Uint8Array).equals(RED_PNG)).toBe(true);
   });
 });

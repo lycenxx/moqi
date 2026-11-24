@@ -10,6 +10,23 @@
 - Model calls: one attempt gives up after 120 seconds. A rate limit (429), a server error (500, 502, 503, 504) or a broken connection is tried again, up to three attempts with a growing wait (a `Retry-After` of up to 10 seconds is respected); a timeout, a bad key or a bad request is not. The daemon log gets one line per attempt with the model, how long it took and the tokens used.
 - Prompt: what moqi knows about you and the notes it read in articles now come as a message after the system prompt, marked as reference and not instructions, so a memory another agent wrote or a note from an article no longer carries the system prompt's weight. The lessons moqi worked out stay in the system prompt.
 
+## [0.7.2] - 2026-11-23
+
+- Fix: weather watches named after your city reported 北京. The config template no longer puts in 北京 as a placeholder; the weather tool takes a city (`place`) and looks it up, so "南京天气" watches carry 南京; and when moqi remembers you live somewhere other than the weather place, it offers once to switch, saving the new place when you accept.
+- Settings: unlock all of one MCP server's tools at once, or set them all back to asking; unlocking takes a second tap and leaves tools the server adds later asking. Tools are listed by where they come from.
+- Feed: 「现在想一想」 sits at the top of the page.
+
+## [0.7.1] - 2026-11-23
+
+- Fix: after a crash left the last line of `events.jsonl` half written, the next event was written onto the same line and lost on the following start. The log now ends a torn last line before writing again. Thanks @lycenxx (#1).
+
+## [0.7.0] - 2026-11-23
+
+- Images in the conversation: paste, drop or pick up to 4 images; moqi checks once whether the model can see them (it shows the model a red square) and greys out the button when it cannot. Images stay under `~/.moqi/media` and go only to your model; the last three messages with images keep them. Answers are formatted: lists, bold, code with a copy button, tables and link cards, with no HTML and nothing loaded from outside. Images that tools bring back (browser and macOS screenshots, MCP servers) show under the answer and can be opened large.
+- Console style: warm paper colours, the teal kept, more room, a greeting with three examples to start from.
+- Feed: cards you handled stay in "看过的" for 30 days (at most 100) with their links and what became of them; a merged coding task can still show its changes; ideas in "moqi 在想" lead to their cards.
+- Fewer questions: a site can be allowed for good ("以后都允许"), after which opening, clicking and paging there are not asked (typing, forms, uploads and scripts still are); remembered sites are listed in Settings and can be removed. Ordinary actions (new folder, new file, move, rename, clipboard, watches, removing todos) can be set to run without asking in Settings. Merging a finished coding task takes one tap on its card, which names the branch. Browser tools set to "放开" keep to the sites already granted after reading a page, instead of asking at every click. In `moqi chat`, `a` answers "以后都允许".
+
 ## [0.6.1] - 2026-11-23
 
 - Fix: an MCP server that exited or closed its input right after starting could crash moqi with `EPIPE`; it is now marked failed. A macOS command that exits without reading its input no longer crashes moqi either.

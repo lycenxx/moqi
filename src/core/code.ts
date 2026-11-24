@@ -22,6 +22,8 @@ export interface CodeResult {
   readonly files: readonly string[];
   readonly stat: string;
   readonly error?: string;
+  /** The commit moqi made, when there were changes. */
+  readonly head?: string;
 }
 
 export interface CodeStart {
@@ -46,7 +48,8 @@ export interface CodeRunner {
   /** Ids of the jobs still running. */
   running(): readonly string[];
   stop(id: string): boolean;
-  diff(task: CodeTask): Promise<string>;
+  /** The changes from where the task started to its branch, or to `head` once the branch is gone. */
+  diff(task: CodeTask, head?: string): Promise<string>;
   /** The branch the project is on now, which a merge goes into. */
   currentBranch(project: string): string;
   merge(task: CodeTask): Promise<string>;
@@ -203,8 +206,9 @@ export function codeTools(k: Kernel, runner: CodeRunner): Tool<any>[] {
       run: async ({ id }) => {
         const t = task(id);
         if (!t) return `没有任务 ${id}`;
+        const into = runner.currentBranch(t.task.project);
         const said = await runner.merge(t.task);
-        k.emit({ type: "code.merged", taskId: id });
+        k.emit({ type: "code.merged", taskId: id, into });
         return said;
       },
     }),

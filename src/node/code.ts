@@ -86,8 +86,8 @@ export function codeRunner(options: CodeRunnerOptions): CodeRunner {
         return "当前分支";
       }
     },
-    diff: async (task) => {
-      const diff = await git(["diff", `${task.base}..${task.branch}`], task.project);
+    diff: async (task, head) => {
+      const diff = await git(["diff", `${task.base}..${head ?? task.branch}`], task.project);
       return diff.length > DIFF_MAX ? `${diff.slice(0, DIFF_MAX)}\n…（后面还有，太长没显示）` : diff;
     },
     merge: async (task) => {
@@ -341,7 +341,7 @@ export const launchAgent: Launch = (run, signal) =>
     });
   });
 
-async function commit(task: CodeTask, label: string): Promise<{ files: string[]; stat: string }> {
+async function commit(task: CodeTask, label: string): Promise<{ files: string[]; stat: string; head?: string }> {
   await git(["add", "-A"], task.dir);
   if ((await git(["diff", "--cached", "--name-only"], task.dir)).trim()) {
     const who = await identity(task.dir);
@@ -350,7 +350,8 @@ async function commit(task: CodeTask, label: string): Promise<{ files: string[];
   }
   const files = (await git(["diff", "--name-only", `${task.base}..HEAD`], task.dir)).split("\n").filter(Boolean);
   const stat = (await git(["diff", "--stat", `${task.base}..HEAD`], task.dir)).trimEnd();
-  return { files, stat };
+  const head = files.length > 0 ? (await git(["rev-parse", "HEAD"], task.dir)).trim() : "";
+  return { files, stat, ...(head && { head }) };
 }
 
 /** Who commits when the repository has no git identity of its own: moqi. */

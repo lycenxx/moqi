@@ -7,6 +7,7 @@
     <title>moqi</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/app.css" />
+    <script src="/markdown.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
@@ -37,16 +38,26 @@
           <pre class="ask-details" id="ask-details" hidden></pre>
           <div class="actions">
             <button type="button" class="btn primary" id="ask-yes">好</button>
+            <button type="button" class="btn" id="ask-always" hidden></button>
             <button type="button" class="btn" id="ask-no">不用</button>
           </div>
         </div>
         <form class="composer" id="composer">
-          <label for="input" class="sr-only">对 moqi 说</label>
-          <textarea id="input" rows="1" placeholder="跟 moqi 说点什么" autocomplete="off"></textarea>
-          <button type="submit" class="send" id="send" aria-label="发送">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
-          </button>
+          <div class="attachments" id="attachments" hidden></div>
+          <div class="composer-row">
+            <label for="input" class="sr-only">对 moqi 说</label>
+            <textarea id="input" rows="1" placeholder="跟 moqi 说点什么，可以直接粘贴图片" autocomplete="off"></textarea>
+            <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden aria-label="选择图片" />
+            <button type="button" class="attach" id="attach" aria-label="添加图片" title="添加图片">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="9" cy="9" r="2" /><path d="M21 15l-5-5L5 21" /></svg>
+            </button>
+            <button type="submit" class="send" id="send" aria-label="发送">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+            </button>
+          </div>
+          <p class="attach-status" id="attach-status" aria-live="polite"></p>
         </form>
+        <dialog class="viewer" id="viewer" aria-label="放大的图片"><img id="viewer-img" alt="" /></dialog>
       </section>
 
       <section class="view" id="view-todo" role="tabpanel" aria-labelledby="tab-todo" hidden>
@@ -70,13 +81,21 @@
       </section>
 
       <section class="view" id="view-feed" role="tabpanel" aria-labelledby="tab-feed" hidden>
-        <h1 class="title">动态</h1>
+        <div class="page-head">
+          <h1 class="title">动态</h1>
+          <button type="button" class="btn" id="think">现在想一想</button>
+        </div>
         <p class="lead">moqi 主动想告诉你的事。你的每次选择，都会让它更清楚什么时候该开口。</p>
         <div class="list" id="code-running"></div>
         <div class="list" id="offers"></div>
+        <div class="section-head" id="history-head" hidden>
+          <h2 class="subtitle">看过的</h2>
+          <span class="hint" id="history-count"></span>
+        </div>
+        <div class="list" id="history"></div>
+        <button type="button" class="btn ghost more" id="history-more" hidden>再看 20 条</button>
         <div class="section-head">
           <h2 class="subtitle">moqi 在想</h2>
-          <button type="button" class="btn" id="think">现在想一想</button>
         </div>
         <p class="hint think-status" id="think-status"></p>
         <div class="list" id="thoughts"></div>
@@ -239,7 +258,7 @@
 
           <fieldset class="group">
             <legend>能力包</legend>
-            <p class="hint first">让 moqi 能在电脑和网页上动手。会改动东西的动作照样先问你，可以在下面「会改动东西的工具」里逐个放开。</p>
+            <p class="hint first">让 moqi 能在电脑和网页上动手。会改动东西的动作照样先问你，可以在下面「会改动东西的工具」和「普通动作」里逐个放开。</p>
             <div class="item">
               <div class="item-main">
                 <p class="item-text">浏览器（Playwright）</p>
@@ -247,7 +266,8 @@
               </div>
               <button type="button" class="btn" id="p-browser">加上</button>
             </div>
-            <p class="hint">用一个单独的 Chrome 配置，看不到你平时浏览器里的登录和记录。每个网站在一轮对话里问你一次；输入文字、上传、执行脚本每次都问。</p>
+            <p class="hint">用一个单独的 Chrome 配置，看不到你平时浏览器里的登录和记录。每个网站在一轮对话里问你一次，也可以选「以后都允许」；输入文字、上传、执行脚本每次都问。</p>
+            <div class="list" id="sites"></div>
             <div class="field">
               <div class="legend-row">
                 <label for="f-folders">文件</label>
@@ -297,8 +317,11 @@
             <div class="list" id="mcp-servers"></div>
             <div class="list" id="mcp-import"></div>
             <h3 class="minor">会改动东西的工具</h3>
-            <p class="hint">外来的写工具默认每次都先问你。放开后直接办，但这一轮读过网页、文件或别的 agent 的消息时，仍会先问。</p>
+            <p class="hint">外来的写工具默认每次都先问你。可以逐个放开，也可以按来源整组放开；放开后直接办，但这一轮读过网页、文件或别的 agent 的消息时，仍会先问。</p>
             <div class="list" id="danger-tools"></div>
+            <h3 class="minor">普通动作</h3>
+            <p class="hint">新建、移动、改名这类不覆盖、不删除东西的动作。连着同意 3 次后 moqi 也会问你要不要直接办。</p>
+            <div class="list" id="ordinary-tools"></div>
             <details class="more">
               <summary>手动添加</summary>
               <div class="field">

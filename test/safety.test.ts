@@ -43,6 +43,45 @@ const steps = (...calls: ReturnType<typeof call>[]) =>
   scriptedModel((r: ChatRequest) => calls[r.messages.filter((m) => m.role === "tool").length] ?? "好了");
 
 describe("dangerous actions", () => {
+  it("unlocks or locks every dangerous tool of one source at once, and only those", () => {
+    const tool = (name: string, source: string, hidden = false) =>
+      defineTool({
+        name,
+        description: name,
+        input: z.object({}),
+        effect: "write",
+        danger: true,
+        source,
+        ...(hidden && { hidden: true }),
+        run: () => "ok",
+      });
+    const { moqi } = harness({
+      plugins: [
+        {
+          name: "x",
+          tools: [
+            tool("click", "browser"),
+            tool("type", "browser"),
+            tool("secret", "browser", true),
+            tool("shell", "term"),
+          ],
+        },
+      ],
+    });
+    expect(moqi.setSourcePolicy("browser", "auto")).toBe(
+      "把 browser 的 2 个工具都放开了；这一轮读过外部内容时仍会先问",
+    );
+    expect(["click", "type", "secret", "shell"].map((t) => moqi.state.toolPolicies.get(t))).toEqual([
+      "auto",
+      "auto",
+      undefined,
+      undefined,
+    ]);
+    expect(moqi.setSourcePolicy("browser", "ask")).toBe("browser 的 2 个工具以后每次都先问");
+    expect(moqi.state.toolPolicies.get("type")).toBe("ask");
+    expect(() => moqi.setSourcePolicy("nobody", "auto")).toThrow("nobody 没有会改动东西的工具");
+  });
+
   it("asks every time, and never offers to stop asking", async () => {
     const p = plugins();
     const { moqi, asked, details, delivered } = harness({ plugins: p.list });

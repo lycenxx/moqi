@@ -10,6 +10,7 @@ import type { Launch } from "../src/node/code.js";
 import { readConfigFile } from "../src/node/config.js";
 import { type Console, type ConsoleOptions, confirmQueue, startConsole } from "../src/node/console/server.js";
 import { type Home, type HomeOptions, openHome } from "../src/node/home.js";
+import { RED_PNG } from "./helpers.js";
 
 type Reply = { content?: string; tool_calls?: { id: string; function: { name: string; arguments: string } }[] };
 
@@ -56,7 +57,7 @@ async function start(
     home: dir,
     notifier: async () => {},
     fetch: net.fetch,
-    confirm: (q, d) => asker.ask(q, d),
+    confirm: (q, d, c) => asker.ask(q, d, c),
     extraPlugins: extra,
     ...homeExtra,
     agents: {
@@ -101,6 +102,60 @@ afterEach(async () => {
 const MODEL = { baseURL: "http://model.test/v1", model: "m1" };
 
 describe("console", () => {
+  it("offers to allow a site for good, lists remembered sites, and removes them", async () => {
+    const site: Plugin = {
+      name: "web",
+      tools: [
+        defineTool({
+          name: "navigate",
+          description: "Open a page",
+          input: z.object({ url: z.string() }),
+          effect: "write",
+          danger: true,
+          site: "goto",
+          source: "web",
+          run: ({ url }) => `opened ${url}`,
+        }),
+      ],
+    };
+    const { api } = await start(
+      { model: MODEL, briefingAt: null },
+      (body) =>
+        body.messages.at(-1)?.role === "tool"
+          ? { content: "开好了" }
+          : {
+              content: "",
+              tool_calls: [{ id: "c1", function: { name: "navigate", arguments: '{"url":"https://jd.com/"}' } }],
+            },
+      [site],
+    );
+    const turn = api("POST", "/api/chat", { text: "打开京东" });
+    let question: { id: string; text: string; always?: string } | null = null;
+    for (let i = 0; i < 50 && !question; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+      question = (await api("GET", "/api/state")).data.question;
+    }
+    expect(question).toMatchObject({ text: "要我打开 jd.com 吗？", always: "以后都允许" });
+    await api("POST", "/api/confirm", { id: question?.id, yes: true, always: true });
+    expect((await turn).data.reply).toBe("开好了");
+    expect((await api("GET", "/api/tools")).data.sites).toEqual(["jd.com"]);
+    expect((await api("POST", "/api/site/forget", { host: "jd.com" })).status).toBe(200);
+    expect((await api("POST", "/api/site/forget", { host: "jd.com" })).status).toBe(404);
+    expect((await api("GET", "/api/tools")).data.sites).toEqual([]);
+  });
+
+  it("lists ordinary write tools and lets the user unlock them", async () => {
+    const { home, api } = await start({ briefingAt: null });
+    const { ordinary } = (await api("GET", "/api/tools")).data;
+    expect(ordinary).toEqual(
+      expect.arrayContaining([{ name: "watch_create", source: "moqi", label: "新建盯梢", level: "ask" }]),
+    );
+    expect((await api("POST", "/api/tool-level", { tool: "watch_create", level: "auto" })).status).toBe(200);
+    expect(home.moqi.ordinaryTools().find((t) => t.name === "watch_create")?.level).toBe("auto");
+    expect((await api("POST", "/api/tool-level", { tool: "forget", level: "auto" })).status).toBe(400);
+    expect((await api("POST", "/api/tool-level", { tool: "watch_create", level: "always" })).status).toBe(400);
+  });
+
   it("serves the page under a strict CSP, and the API only with the token", async () => {
     const { ui, api } = await start({});
     const page = await fetch(`http://127.0.0.1:${ui.port}/`);
@@ -119,6 +174,10 @@ describe("console", () => {
     expect(html).toContain('id="code-running"');
     expect(html).toContain('id="code-projects"');
     expect((await fetch(`http://127.0.0.1:${ui.port}/app.js`)).headers.get("content-type")).toContain("javascript");
+    expect((await fetch(`http://127.0.0.1:${ui.port}/markdown.js`)).headers.get("content-type")).toContain(
+      "javascript",
+    );
+    expect(html).toContain('<script src="/markdown.js"');
 
     expect((await api("GET", "/api/state", undefined, "wrong")).status).toBe(401);
     expect((await api("GET", "/api/state", undefined, "")).status).toBe(401);
@@ -421,8 +480,8 @@ describe("console: moqi thinking", () => {
     expect(news.links).toEqual([{ title: "深圳明天暴雨", url: "https://feed.test/rain" }]);
     expect(state.thoughts[0].trigger).toBe("user");
     expect(state.thoughts[0].ideas).toEqual([
-      { type: "ask", title: "你一般几点下班？", value: 0.4, outcome: "不急，放进动态" },
-      { type: "world", title: "深圳明天暴雨", value: 0.3, outcome: "不急，放进动态" },
+      { type: "ask", title: "你一般几点下班？", value: 0.4, outcome: "不急，放进动态", offerId: question.id },
+      { type: "world", title: "深圳明天暴雨", value: 0.3, outcome: "不急，放进动态", offerId: news.id },
     ]);
 
     expect((await api("POST", "/api/answer", { id: question.id, text: "一般 7 点" })).data.message).toBe(
@@ -513,6 +572,15 @@ describe("console: dangerous tools", () => {
     expect((await api("POST", "/api/tool-policy", { tool: "todo_add", policy: "auto" })).status).toBe(400);
     expect((await api("POST", "/api/tool-policy", { tool: "shell", policy: "auto" })).status).toBe(200);
     expect(home.moqi.state.toolPolicies.get("shell")).toBe("auto");
+    expect((await api("POST", "/api/tool-policy/source", { source: "term-server", policy: "ask" })).data.message).toBe(
+      "term-server 的 1 个工具以后每次都先问",
+    );
+    expect(home.moqi.state.toolPolicies.get("shell")).toBe("ask");
+    expect((await api("POST", "/api/tool-policy/source", { source: "nobody", policy: "auto" })).status).toBe(400);
+    expect((await api("POST", "/api/tool-policy/source", { source: "term-server", policy: "normal" })).status).toBe(
+      400,
+    );
+    await api("POST", "/api/tool-policy", { tool: "shell", policy: "auto" });
 
     const offer = await home.moqi.offer({
       kind: "idea.serve",
@@ -596,14 +664,20 @@ describe("console: coding agents", () => {
       await new Promise((r) => setTimeout(r, 20));
       task = (await api("GET", "/api/state")).data.code[0];
     }
-    expect(task).toMatchObject({ status: "done", files: 1, agent: "Kiro", project: basename(project) });
+    expect(task).toMatchObject({ status: "done", files: 1, agent: "Kiro", project: basename(project), into: "main" });
     const offer = (await api("GET", "/api/state")).data.offers.find((o: { kind: string }) => o.kind === "code.done");
     expect(offer?.taskId).toBe(task?.id);
     expect((await api("GET", `/api/code/diff?id=${task?.id}`)).data.diff).toContain("+hello");
     expect((await api("POST", "/api/code/stop", { id: task?.id })).status).toBe(409);
     expect((await api("POST", "/api/code/discard", { id: task?.id })).data.message).toMatch(/^丢弃了 moqi\//);
+    expect((await api("GET", `/api/code/diff?id=${task?.id}`)).status).toBe(409);
     const after = (await api("GET", "/api/state")).data;
     expect(after.code[0].status).toBe("discarded");
+    expect(after.history.find((o: { kind: string }) => o.kind === "code.done")).toMatchObject({
+      outcome: "已丢弃",
+      taskId: task?.id,
+      canDiff: false,
+    });
     expect(after.offers.filter((o: { kind: string }) => o.kind === "code.done")).toEqual([]);
 
     const notRepo = mkdtempSync(join(tmpdir(), "moqi-plain-"));
@@ -765,5 +839,92 @@ describe("confirm queue", () => {
     expect(asker.pending()?.text).toBe("B？");
     expect(await second).toBe(false); // timed out
     expect(asker.pending()).toBeUndefined();
+  });
+});
+
+describe("console: images", () => {
+  const T = "t".repeat(32);
+  const upload = (port: number, bytes: Uint8Array, type = "image/png", token = T) =>
+    fetch(`http://127.0.0.1:${port}/api/media`, {
+      method: "POST",
+      headers: { "x-moqi-token": token, "content-type": type },
+      body: new Blob([new Uint8Array(bytes)]),
+    });
+
+  it("takes images, gives them back, and sends them to the model with the message", async () => {
+    let seen: unknown;
+    const { ui, api } = await start({ model: MODEL, briefingAt: null }, (body) => {
+      seen = body.messages.at(-1);
+      return { content: "一个红色方块" };
+    });
+    expect((await upload(ui.port, RED_PNG, "image/png", "x".repeat(32))).status).toBe(401);
+    expect((await upload(ui.port, Buffer.from("hello"), "text/plain")).status).toBe(415);
+    expect((await upload(ui.port, Buffer.from("hello"), "image/png")).status).toBe(415);
+    const tooBig = await new Promise<number>((resolve, reject) => {
+      const req = request(
+        {
+          host: "127.0.0.1",
+          port: ui.port,
+          path: "/api/media",
+          method: "POST",
+          headers: { "x-moqi-token": T, "content-type": "image/png", "content-length": String(3 * 1024 * 1024 + 1) },
+        },
+        (res) => {
+          resolve(res.statusCode ?? 0);
+          res.resume();
+          req.destroy();
+        },
+      );
+      req.on("error", reject);
+      req.flushHeaders();
+    });
+    expect(tooBig).toBe(413);
+
+    const { id } = (await (await upload(ui.port, RED_PNG)).json()) as { id: string };
+    expect(id).toMatch(/^m_[0-9a-f]{16}$/);
+    const got = await fetch(`http://127.0.0.1:${ui.port}/api/media?id=${id}`, { headers: { "x-moqi-token": T } });
+    expect(got.headers.get("content-type")).toBe("image/png");
+    expect(Buffer.from(await got.arrayBuffer()).equals(RED_PNG)).toBe(true);
+    expect((await api("GET", "/api/media?id=../config.json")).status).toBe(400);
+    expect((await api("GET", "/api/media?id=m_0000000000000000")).status).toBe(404);
+
+    expect((await api("POST", "/api/chat", { text: "", images: [] })).status).toBe(400);
+    expect((await api("POST", "/api/chat", { text: "这是什么", images: ["m_0000000000000000"] })).status).toBe(400);
+    expect((await api("POST", "/api/chat", { text: "这是什么", images: [id], from: "kiro" })).status).toBe(400);
+    expect((await api("POST", "/api/chat", { text: "这是什么", images: [id] })).data.reply).toBe("一个红色方块");
+    expect(seen).toMatchObject({
+      role: "user",
+      content: [
+        { type: "text", text: "这是什么" },
+        { type: "image_url", image_url: { url: `data:image/png;base64,${RED_PNG.toString("base64")}` } },
+      ],
+    });
+    const state = (await api("GET", "/api/state")).data;
+    expect(state.messages.at(-2)).toMatchObject({ role: "user", text: "这是什么", images: [id] });
+    expect(state.vision).toBeNull();
+  });
+
+  it("finds out once whether the model can see, and forgets it when the model changes", async () => {
+    let answer = "红色";
+    const { dir, api } = await start({ model: MODEL, briefingAt: null }, () => ({ content: answer }));
+    expect((await api("POST", "/api/model/vision", {})).data).toEqual({ vision: true });
+    expect(readConfigFile(dir).model?.vision).toBe(true);
+    expect((await api("GET", "/api/state")).data.vision).toBe(true);
+    answer = "我看不到图片";
+    expect((await api("POST", "/api/model/vision", { model: MODEL })).data).toEqual({ vision: false });
+    expect(readConfigFile(dir).model?.vision).toBe(true); // testing a form's model does not save
+    const config = (await api("GET", "/api/config")).data.config;
+    await api("POST", "/api/config", { config: { ...config, model: { ...MODEL } } });
+    expect(readConfigFile(dir).model?.vision).toBe(true); // same model: kept
+    await api("POST", "/api/config", { config: { ...config, model: { ...MODEL, model: "m2" } } });
+    expect(readConfigFile(dir).model?.vision).toBeUndefined(); // another model: forgotten
+    await api("POST", "/api/config", { config: { ...config, model: { ...MODEL, model: "m2", vision: false } } });
+    expect(readConfigFile(dir).model?.vision).toBe(false); // the page tested this very model
+  });
+
+  it("lets images come from the page only, under the policy", async () => {
+    const { ui } = await start({});
+    const csp = (await fetch(`http://127.0.0.1:${ui.port}/`)).headers.get("content-security-policy") ?? "";
+    expect(csp).toContain("img-src 'self' data: blob:");
   });
 });

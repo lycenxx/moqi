@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { Moqi } from "../src/core/moqi.js";
 import { loadConfig, TEMPLATE, writeTemplate } from "../src/node/config.js";
 import { acquireLock, fileEventStore } from "../src/node/file-store.js";
-import { openHome } from "../src/node/home.js";
+import { openHome, terminalAnswer } from "../src/node/home.js";
 import { desktopNotifier } from "../src/node/notify.js";
 import { fakeClock } from "./helpers.js";
 
@@ -88,6 +88,7 @@ describe("config", () => {
     const home = join(tmp(), "fresh", ".moqi");
     const path = writeTemplate(home);
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(TEMPLATE);
+    expect(TEMPLATE).not.toHaveProperty("weather"); // no made-up city: the user picks theirs
     expect(loadConfig(home, {}).model?.model).toBe(TEMPLATE.model.model);
     expect(() => writeTemplate(home)).toThrow(/already exists/);
   });
@@ -115,7 +116,7 @@ describe("config", () => {
       lock: false,
     });
     // news is on unless turned off; moqi always looks for other agents unless told not to
-    expect(home.moqi.plugins.map((p) => p.name)).toEqual(["news", "agents", "mcp"]);
+    expect(home.moqi.plugins.map((p) => p.name)).toEqual(["weather", "news", "agents", "mcp"]); // weather answers for a city without a place of its own
     expect(home.agents?.command.args.at(-1)).toBe("mcp");
     home.close();
     const withPlugins = openHome({
@@ -130,5 +131,17 @@ describe("config", () => {
     });
     expect(withPlugins.moqi.plugins.map((p) => p.name)).toEqual(["weather", "calendar", "news", "mcp"]);
     expect(withPlugins.moqi.tool("weather")).toBeDefined();
+  });
+});
+
+describe("terminal answers", () => {
+  it("reads yes, no, and 'always' only where the question offers it", () => {
+    expect(terminalAnswer("y", false)).toBe(true);
+    expect(terminalAnswer(" 好 ", false)).toBe(true);
+    expect(terminalAnswer("", false)).toBe(false);
+    expect(terminalAnswer("a", false)).toBe(false);
+    expect(terminalAnswer("a", true)).toBe("always");
+    expect(terminalAnswer("以后都允许", true)).toBe("always");
+    expect(terminalAnswer("n", true)).toBe(false);
   });
 });

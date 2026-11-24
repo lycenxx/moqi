@@ -7,8 +7,15 @@ export interface ToolCall {
   readonly arguments: string;
 }
 
+/** An image for the model: its type and its bytes in base64. */
+export interface ImagePart {
+  readonly type: string;
+  readonly data: string;
+}
+
 export type ChatMessage =
-  | { readonly role: "system" | "user"; readonly content: string }
+  | { readonly role: "system"; readonly content: string }
+  | { readonly role: "user"; readonly content: string; readonly images?: readonly ImagePart[] }
   | { readonly role: "assistant"; readonly content: string; readonly toolCalls?: readonly ToolCall[] }
   | { readonly role: "tool"; readonly content: string; readonly toolCallId: string };
 
@@ -193,10 +200,44 @@ function toWire(m: ChatMessage): Record<string, unknown> {
       })),
     };
   }
+  if (m.role === "user" && m.images?.length)
+    return {
+      role: "user",
+      content: [
+        ...(m.content ? [{ type: "text", text: m.content }] : []),
+        ...m.images.map((i) => ({ type: "image_url", image_url: { url: `data:${i.type};base64,${i.data}` } })),
+      ],
+    };
   return { role: m.role, content: m.content };
 }
 
 /** Reasoning models (Qwen3, DeepSeek-R1 via some servers) put their thoughts in <think> tags. */
 export function stripThinking(text: string): string {
   return text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+}
+
+/** A 32×32 solid red PNG: a model that can see says "red". */
+const RED_SQUARE =
+  "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAJ0lEQVR42u3NsQkAAAjAsP7/tF7hIASyp6lTCQQCgUAgEAgEgi/BAjLD/C5w/SM9AAAAAElFTkSuQmCC";
+
+/**
+ * Whether the model reads images: it is shown a red square and asked its colour. A refusal of the request
+ * itself (400, 413, 415, 422) means it cannot; any other failure is not an answer and is thrown. The token
+ * limit leaves room for models that think before they answer (deepseek-flash by that name does).
+ */
+export async function canSeeImages(model: ChatModel, signal?: AbortSignal): Promise<boolean> {
+  try {
+    const reply = await model.chat({
+      messages: [
+        { role: "user", content: "这张图是什么颜色？只回答颜色。", images: [{ type: "image/png", data: RED_SQUARE }] },
+      ],
+      maxTokens: 512,
+      reasoning: "off",
+      ...(signal && { signal }),
+    });
+    return /红|red/i.test(reply.content);
+  } catch (error) {
+    if (/ responded (400|413|415|422):/.test(error instanceof Error ? error.message : String(error))) return false;
+    throw error;
+  }
 }
