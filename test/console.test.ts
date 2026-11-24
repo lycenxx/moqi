@@ -535,6 +535,15 @@ describe("console: dangerous tools", () => {
     expect((await api("POST", "/api/tool-policy", { tool: "todo_add", policy: "auto" })).status).toBe(400);
     expect((await api("POST", "/api/tool-policy", { tool: "shell", policy: "auto" })).status).toBe(200);
     expect(home.moqi.state.toolPolicies.get("shell")).toBe("auto");
+    expect((await api("POST", "/api/tool-policy/source", { source: "term-server", policy: "ask" })).data.message).toBe(
+      "term-server 的 1 个工具以后每次都先问",
+    );
+    expect(home.moqi.state.toolPolicies.get("shell")).toBe("ask");
+    expect((await api("POST", "/api/tool-policy/source", { source: "nobody", policy: "auto" })).status).toBe(400);
+    expect((await api("POST", "/api/tool-policy/source", { source: "term-server", policy: "normal" })).status).toBe(
+      400,
+    );
+    await api("POST", "/api/tool-policy", { tool: "shell", policy: "auto" });
 
     const offer = await home.moqi.offer({
       kind: "idea.serve",
