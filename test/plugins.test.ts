@@ -63,10 +63,15 @@ describe("calendar (.ics)", () => {
   });
 });
 
-function fakeForecast(rainTomorrow: number) {
+function fakeForecast(rainTomorrow: number, places: Record<string, { latitude: number; longitude: number }> = {}) {
   const calls: string[] = [];
   const fetch = (async (url: string) => {
     calls.push(String(url));
+    if (String(url).includes("geocoding-api")) {
+      const name = new URL(String(url)).searchParams.get("name") ?? "";
+      const hit = places[name];
+      return new Response(JSON.stringify(hit ? { results: [{ name, ...hit }] } : {}));
+    }
     return new Response(
       JSON.stringify({
         daily: {
@@ -113,6 +118,67 @@ describe("weather (Open-Meteo)", () => {
     await moqi.tick();
     await moqi.tick();
     expect(delivered.map((d) => [d.surface, d.offer.title])).toEqual([["notify", "明天记得带伞"]]);
+  });
+
+  it("looks a city up when asked about one, once per name, and says when it cannot find it", async () => {
+    const f = fakeForecast(80, { 南京: { latitude: 32.06, longitude: 118.78 } });
+    const { moqi } = harness({ plugins: [weatherPlugin({ ...place, fetch: f.fetch })] });
+    expect(await moqi.callTool("weather", { day: "tomorrow", place: "南京" }, { byUser: true })).toBe(
+      "南京明天中雨，2~6°C，降水概率 80%",
+    );
+    await moqi.callTool("weather", { day: "today", place: "南京" }, { byUser: true });
+    expect(f.calls.filter((u) => u.includes("geocoding")).length).toBe(1);
+    expect(f.calls.some((u) => u.includes("latitude=32.06&longitude=118.78"))).toBe(true);
+    expect(await moqi.callTool("weather", { place: "火星" }, { byUser: true })).toBe("出错了：找不到「火星」这个地方");
+  });
+
+  it("works without a place of its own, asking for a city instead of guessing one", async () => {
+    const f = fakeForecast(80);
+    const { moqi } = harness({ plugins: [weatherPlugin({ fetch: f.fetch })] });
+    expect(await moqi.callTool("weather", {}, { byUser: true })).toBe(
+      "出错了：还没设天气地点：告诉我城市，或者在设置里搜一下",
+    );
+    expect((await moqi.briefing()).body).not.toContain("天气");
+  });
+
+  it("offers once to follow the city the user lives in, and saves it when accepted", async () => {
+    const f = fakeForecast(10, { 南京: { latitude: 32.06, longitude: 118.78 } });
+    const saved: unknown[] = [];
+    const { moqi, delivered } = harness({
+      plugins: [weatherPlugin({ ...place, fetch: f.fetch, save: (w) => void saved.push(w) })],
+    });
+    moqi.remember({ kind: "basic", content: "住在南京市江宁区" });
+    await moqi.tick();
+    await moqi.tick();
+    const offers = delivered.filter((d) => d.offer.kind === "weather.place");
+    expect(offers.map((d) => d.offer)).toMatchObject([
+      {
+        title: "天气要改成南京吗？",
+        body: "你说过住在南京，天气现在设的是北京。",
+        action: { tool: "weather_use_place", args: { place: "南京" } },
+      },
+    ]);
+    expect(await moqi.feedback(offers[0]?.offer.id ?? "", "accepted")).toBe("好，天气改成南京了");
+    expect(saved).toEqual([{ latitude: 32.06, longitude: 118.78, place: "南京" }]);
+  });
+
+  it("stays quiet when the place it has is where the user lives", async () => {
+    const f = fakeForecast(10);
+    const { moqi, delivered } = harness({ plugins: [weatherPlugin({ ...place, fetch: f.fetch })] });
+    moqi.remember({ kind: "basic", content: "住在北京朝阳" });
+    await moqi.tick();
+    expect(delivered.filter((d) => d.offer.kind === "weather.place")).toEqual([]);
+  });
+
+  it("offers a place when it has none yet", async () => {
+    const f = fakeForecast(10, { 深圳: { latitude: 22.54, longitude: 114.06 } });
+    const { moqi, delivered } = harness({ plugins: [weatherPlugin({ fetch: f.fetch })] });
+    moqi.remember({ kind: "basic", content: "住在深圳南山" });
+    await moqi.tick();
+    expect(delivered.find((d) => d.offer.kind === "weather.place")?.offer).toMatchObject({
+      title: "天气要改成深圳吗？",
+      body: "你说过住在深圳，天气还没设地点。",
+    });
   });
 
   it("says nothing when tomorrow is dry", async () => {

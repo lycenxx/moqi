@@ -88,6 +88,7 @@ describe("config", () => {
     const home = join(tmp(), "fresh", ".moqi");
     const path = writeTemplate(home);
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(TEMPLATE);
+    expect(TEMPLATE).not.toHaveProperty("weather"); // no made-up city: the user picks theirs
     expect(loadConfig(home, {}).model?.model).toBe(TEMPLATE.model.model);
     expect(() => writeTemplate(home)).toThrow(/already exists/);
   });
@@ -115,7 +116,7 @@ describe("config", () => {
       lock: false,
     });
     // news is on unless turned off; moqi always looks for other agents unless told not to
-    expect(home.moqi.plugins.map((p) => p.name)).toEqual(["news", "agents", "mcp"]);
+    expect(home.moqi.plugins.map((p) => p.name)).toEqual(["weather", "news", "agents", "mcp"]); // weather answers for a city without a place of its own
     expect(home.agents?.command.args.at(-1)).toBe("mcp");
     home.close();
     const withPlugins = openHome({

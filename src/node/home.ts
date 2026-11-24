@@ -11,7 +11,7 @@ import type { Answer, EventStore, Offer, Surface } from "../core/types.js";
 import { a2aPlugin } from "../plugins/a2a.js";
 import { calendarPlugin } from "../plugins/calendar.js";
 import { newsPlugin } from "../plugins/news.js";
-import { weatherPlugin } from "../plugins/weather.js";
+import { type WeatherPlace, weatherPlugin } from "../plugins/weather.js";
 import { type AgentsPluginOptions, agentsPlugin } from "./agents.js";
 import { codeRunner, type Launch } from "./code.js";
 import { type Config, expandHome, loadConfig, readConfigFile, saveConfig } from "./config.js";
@@ -91,9 +91,17 @@ export function pluginsFrom(
   fetchImpl?: typeof fetch,
   platform: NodeJS.Platform = process.platform,
   media?: MediaStore,
+  saveWeather?: (place: WeatherPlace) => void | Promise<void>,
 ): Plugin[] {
   const plugins: Plugin[] = [];
-  if (config.weather) plugins.push(weatherPlugin({ ...config.weather, ...(fetchImpl && { fetch: fetchImpl }) }));
+  // Always there: without a place of its own, the weather tool still answers for a city it is given.
+  plugins.push(
+    weatherPlugin({
+      ...config.weather,
+      ...(fetchImpl && { fetch: fetchImpl }),
+      ...(saveWeather && { save: saveWeather }),
+    }),
+  );
   if (config.calendar) {
     const path = expandHome(config.calendar.ics);
     plugins.push(calendarPlugin({ load: () => readFileSync(path, "utf8") }));
@@ -129,6 +137,12 @@ export function openHome(options: HomeOptions): Home {
     // A tool runs inside a serial job, so the rebuild it asks for is queued after that job, not awaited in it.
     let reconfigureLater = async (_next: Config) => {};
     let config = options.config ?? loadConfig(options.home);
+    // The user accepted moqi's offer to take the weather from where they live: keep it, then rebuild.
+    const saveWeather = (place: WeatherPlace) => {
+      const file = readConfigFile(options.home);
+      saveConfig(options.home, { ...file, weather: place });
+      void reconfigureLater(loadConfig(options.home));
+    };
     const media = mediaStore(options.home);
     const hub = new McpHub(VERSION, media);
     // A finished task is reported to whichever moqi is current by then, after the jobs before it.
@@ -140,7 +154,7 @@ export function openHome(options: HomeOptions): Home {
       ...(options.codeLaunch && { launch: options.codeLaunch }),
     });
     if (options.mcp !== false) hub.reconcile(config.mcp?.servers);
-    let moqi = build(config, store, options, notify, agents, hub, code, media);
+    let moqi = build(config, store, options, notify, agents, hub, code, media, saveWeather);
     moqi.recoverCode(); // tasks a previous run left running were cut short
     let chain: Promise<unknown> = Promise.resolve();
     const serial = <T>(job: () => Promise<T>): Promise<T> => {
@@ -152,14 +166,14 @@ export function openHome(options: HomeOptions): Home {
     hub.watch(() => {
       void serial(async () => {
         await moqi.idle();
-        moqi = build(config, store, options, notify, agents, hub, code, media);
+        moqi = build(config, store, options, notify, agents, hub, code, media, saveWeather);
       });
     });
     const reconfigure = (next: Config) =>
       serial(async () => {
         await moqi.idle();
         if (options.mcp !== false) hub.reconcile(next.mcp?.servers);
-        moqi = build(next, store, options, notify, agents, hub, code, media);
+        moqi = build(next, store, options, notify, agents, hub, code, media, saveWeather);
         config = next;
       });
     reconfigureLater = (next) => reconfigure(next);
@@ -198,6 +212,7 @@ function build(
   hub: McpHub,
   code: CodeRunner,
   media: MediaStore,
+  saveWeather: (place: WeatherPlace) => void,
 ): Moqi {
   return new Moqi({
     store,
@@ -205,7 +220,7 @@ function build(
       model: openAICompatible({ ...config.model, ...(options.fetch && { fetch: options.fetch }) }),
     }),
     plugins: [
-      ...pluginsFrom(config, options.fetch, process.platform, media),
+      ...pluginsFrom(config, options.fetch, process.platform, media, saveWeather),
       ...(agents ? [agentsPlugin(agents)] : []),
       hub.plugin(),
       ...(options.extraPlugins ?? []),
