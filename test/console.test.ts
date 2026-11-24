@@ -223,6 +223,33 @@ describe("console", () => {
     ]);
   });
 
+  it("stops a conversation that waits for an answer, and leaves the question unanswered as a no", async () => {
+    const { api } = await start({ model: { baseURL: "http://m.test/v1", model: "m" }, briefingAt: null }, (body) => {
+      const last = body.messages.at(-1);
+      if (last?.role === "tool") return { content: "不该走到这里" };
+      const args = { title: "早点睡", schedule: { every: "day", at: "22:00" }, remind: "该睡了" };
+      return {
+        content: "",
+        tool_calls: [{ id: "c1", function: { name: "watch_create", arguments: JSON.stringify(args) } }],
+      };
+    });
+    expect((await api("POST", "/api/chat/stop", {})).status).toBe(409); // nothing to stop yet
+    const turn = api("POST", "/api/chat", { text: "每天晚上 10 点提醒我早点睡" });
+    let question: { id: string } | null = null;
+    for (let i = 0; i < 50 && !question; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+      question = (await api("GET", "/api/state")).data.question;
+    }
+    expect(question).not.toBeNull();
+    expect((await api("POST", "/api/chat/stop", {})).status).toBe(200);
+    const done = await turn;
+    expect(done.status).toBe(200);
+    expect(done.data).toMatchObject({ stopped: true, reply: "" });
+    const after = await api("GET", "/api/state");
+    expect(after.data.question).toBeNull();
+    expect(after.data.busy).toBe(false);
+    expect(after.data.watches).toEqual([]);
+  });
   it("says so instead of chatting when no model is set", async () => {
     const { api } = await start({});
     const res = await api("POST", "/api/chat", { text: "你好" });

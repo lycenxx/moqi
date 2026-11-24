@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { CodeRunner } from "../core/code.js";
-import { openAICompatible } from "../core/model.js";
+import { type ModelCall, openAICompatible } from "../core/model.js";
 import { Moqi, type MoqiOptions } from "../core/moqi.js";
 import type { Plugin } from "../core/plugin.js";
 import type { EventStore, Offer, Surface } from "../core/types.js";
@@ -28,6 +28,8 @@ export interface HomeOptions {
   /** Also told about every delivery, e.g. to print it in the terminal. */
   readonly onDeliver?: (offer: Offer, surface: Surface) => void;
   readonly confirm?: MoqiOptions["confirm"];
+  /** Told about every model attempt: how long it took, how many tokens, what went wrong. */
+  readonly onModelCall?: (call: ModelCall) => void;
   readonly extraPlugins?: readonly Plugin[];
   readonly lock?: boolean;
   /** Used for the model and the weather plugin. Tests pass a fake. */
@@ -187,7 +189,11 @@ function build(
   return new Moqi({
     store,
     ...(config.model && {
-      model: openAICompatible({ ...config.model, ...(options.fetch && { fetch: options.fetch }) }),
+      model: openAICompatible({
+        ...config.model,
+        ...(options.fetch && { fetch: options.fetch }),
+        ...(options.onModelCall && { onCall: options.onModelCall }),
+      }),
     }),
     plugins: [
       ...pluginsFrom(config, options.fetch),

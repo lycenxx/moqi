@@ -229,7 +229,10 @@ function renderChat() {
     const last = state.messages.at(-1);
     if (!(last && last.role === "user" && last.text === sending))
       list.append(h("div", { class: "msg user", text: sending }));
-    list.append(h("div", { class: "msg moqi thinking", text: "moqi 在想" }));
+    list.append(
+      h("div", { class: "msg moqi thinking", text: "moqi 在想" }),
+      h("button", { type: "button", class: "btn ghost stop-chat", text: "停止", onclick: stopChat }),
+    );
   }
   $("input").disabled = !state.configured;
   $("send").disabled = !state.configured || sending !== null;
@@ -797,6 +800,13 @@ function removeButton(label, confirmText, run, iconName = "trash") {
 /* Chat */
 
 const input = $("input");
+async function stopChat() {
+  try {
+    await api("POST", "/api/chat/stop", {});
+  } catch (error) {
+    toast(error.message);
+  }
+}
 
 function autosize() {
   input.style.height = "auto";
@@ -819,7 +829,11 @@ $("composer").addEventListener("submit", async (e) => {
   autosize();
   render();
   try {
-    await api("POST", "/api/chat", { text });
+    const done = await api("POST", "/api/chat", { text });
+    if (done.stopped) {
+      toast("已停止");
+      if (!input.value) input.value = text;
+    }
   } catch (error) {
     toast(error.message);
     if (!input.value) input.value = text;

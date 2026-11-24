@@ -1,5 +1,5 @@
 // moqi core: pure TypeScript, no Node APIs. Runs on desktop and in mobile JS runtimes.
-export { AGENT, chatTurn, learn, systemPrompt } from "./agent.js";
+export { AGENT, chatTurn, learn, referenceMessage, systemPrompt } from "./agent.js";
 export { type ActionPolicy, guarded, LEVELS, levelOf, needsConfirmation, promotionDue } from "./autonomy.js";
 export { type Briefing, composeBriefing } from "./briefing.js";
 export * from "./code.js";
@@ -18,6 +18,7 @@ export {
   type ChatModel,
   type ChatReply,
   type ChatRequest,
+  type ModelCall,
   type OpenAICompatibleOptions,
   openAICompatible,
   stripThinking,
@@ -43,7 +44,7 @@ export { findRoutines, ROUTINE, type Routine } from "./routines.js";
 export { dayKey, describeSchedule, minuteOfDay, nextRun, parseTime, validateSchedule } from "./schedule.js";
 export { hostOf, pageHost, type SiteGrant, type SiteRole, siteDecision } from "./sites.js";
 export { type KindStats, type OfferRecord, RULES, State, type Study, type Thought, type Trust } from "./state.js";
-export { lessonsDue, STUDY, study, studySection } from "./study.js";
+export { lessonsDue, lessonsSection, notesSection, STUDY, study, studySection } from "./study.js";
 export * from "./todo.js";
 export * from "./types.js";
 export { runWatch, type WatchDeps, type WatchOutcome, watchGraph } from "./watch.js";

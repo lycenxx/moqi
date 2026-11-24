@@ -139,6 +139,8 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
   );
   const expected = Buffer.from(options.token);
   let chatting = 0;
+  /** The chats on their way (running or queued), so the page's stop button can end them. */
+  const chats = new Set<AbortController>();
   let port = 0;
 
   /** The saved key, only for the endpoint it was saved with: switching providers must never send it elsewhere. */
@@ -293,20 +295,31 @@ export async function startConsole(options: ConsoleOptions): Promise<Console> {
       if (text === "") throw new HttpError(400, "说点什么吧");
       if (text.length > 4000) throw new HttpError(400, "一次说得太长了");
       if (!home.moqi.model) throw new HttpError(409, "还没配置模型，先去设置里接一个");
+      const stop = new AbortController();
+      chats.add(stop);
       chatting++;
       try {
         return {
           reply: await home.serial(() =>
-            home.moqi.chat(fromAgent(text, body.from), undefined, { fromAgent: byAgent(body.from) }),
+            home.moqi.chat(fromAgent(text, body.from), stop.signal, { fromAgent: byAgent(body.from) }),
           ),
         };
       } catch (error) {
+        if (stop.signal.aborted) return { reply: "", stopped: true };
         throw new HttpError(502, `模型出错了：${message(error)}`);
       } finally {
+        chats.delete(stop);
         chatting--;
       }
     },
-
+    "POST /api/chat/stop": () => {
+      if (chats.size === 0) throw new HttpError(409, "没有在进行的对话");
+      for (const stop of chats) stop.abort("stop");
+      // A question the conversation is waiting on would hold the stop back until it times out.
+      const question = asker.pending();
+      if (question) asker.answer(question.id, false);
+      return { ok: true };
+    },
     "POST /api/answer": async (body) => {
       const id = str(body.id, "id");
       const text = str(body.text, "text");
